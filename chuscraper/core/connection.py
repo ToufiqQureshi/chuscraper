@@ -731,52 +731,54 @@ class Listener:
         return True
 
     async def listener_loop(self) -> None:
-        while True:
-            if self.connection.websocket is None:
-                raise ValueError("no websocket connection")
+        """
+        Listen for incoming websocket messages using async iteration.
+        Messages are processed in separate tasks to prevent blocking recv().
+        """
+        if self.connection.websocket is None:
+            raise ValueError("no websocket connection")
 
-            try:
-                msg = await asyncio.wait_for(
-                    self.connection.websocket.recv(), self.time_before_considered_idle
-                )
-            except asyncio.TimeoutError:
-                self.idle.set()
-                # breathe
-                # await asyncio.sleep(self.time_before_considered_idle / 10)
-                continue
-            except asyncio.CancelledError:
-                logger.debug(
-                    "task was cancelled while reading websocket, breaking loop"
-                )
-                break
-            except websockets.exceptions.ConnectionClosedError as e:
-                # break on connection closed
-                logger.debug(
-                    "connection listener exception while reading websocket:\n%s", e
-                )
-                break
+        try:
+            # Use async iteration instead of explicit recv() to avoid blocking
+            async for msg in self.connection.websocket:
+                # Check if we should stop
+                if not self.running:
+                    break
+                
+                # Clear idle since we got a message
+                self.idle.clear()
+                
+                # Spawn task to process message without blocking the loop
+                asyncio.create_task(self._process_message(msg))
 
-            if not self.running:
-                # if we have been cancelled or otherwise stopped running
-                # break this loop
-                break
+        except asyncio.CancelledError:
+            logger.debug(
+                "task was cancelled while reading websocket, breaking loop"
+            )
+        except websockets.exceptions.ConnectionClosedError as e:
+            logger.debug(
+                "connection listener exception while reading websocket:\n%s", e
+            )
+        except Exception as e:
+            logger.error("unexpected error in listener loop: %s", e, exc_info=True)
 
-            # since we are at this point, we are not "idle" anymore.
-            self.idle.clear()
 
+    async def _process_message(self, msg: str) -> None:
+        """
+        Process a single websocket message in a separate task.
+        This prevents blocking the listener loop.
+        """
+        try:
             message = json.loads(msg)
             if "id" in message:
                 # response to our command
                 if message["id"] in self.connection.mapper:
                     # get the corresponding Transaction
-
-                    # thanks to zxsleebu for discovering the memory leak
                     # pop to prevent memory leaks
                     tx = self.connection.mapper.pop(message["id"])
                     logger.debug("got answer for %s (message_id:%d)", tx, message["id"])
 
-                    # complete the transaction, which is a Future object
-                    # and thus will return to anyone awaiting it.
+                    # complete the transaction
                     tx(**message)
                 else:
                     if message["id"] == -2:
@@ -784,7 +786,7 @@ class Listener:
                         if maybe_tx:
                             tx = maybe_tx
                             tx(**message)
-                        continue
+                        return
             else:
                 # probably an event
                 try:
@@ -798,37 +800,33 @@ class Listener:
                     logger.info(
                         "%s: %s  during parsing of json from event : %s"
                         % (type(e).__name__, e.args, message),
-                        exc_info=True,
+                        exc_info=False,
                     )
-                    continue
-                except KeyError as e:
-                    logger.info("some lousy KeyError %s" % e, exc_info=True)
-                    continue
-                try:
-                    if type(event) in self.connection.handlers:
-                        callbacks = self.connection.handlers[type(event)]
-                    else:
-                        continue
-                    if not len(callbacks):
-                        continue
+                    return
+
+                self.history.append(event_tx)
+                if len(self.history) > self.max_history:
+                    self.history.popleft()
+
+                # Execute registered handlers for this event
+                if type(event) in self.connection.handlers:
+                    callbacks = self.connection.handlers[type(event)]
                     for callback in callbacks:
                         try:
                             if iscoroutinefunction(callback):
+                                # Async handler - spawn task
                                 try:
-                                    asyncio.create_task(
-                                        callback(event, self.connection)
-                                    )
+                                    asyncio.create_task(callback(event, self.connection))
                                 except TypeError:
                                     asyncio.create_task(callback(event))
                             else:
-                                callback = typing.cast(Callable, callback)  # type: ignore
-
+                                # Sync handler - run in thread to avoid blocking
                                 def run_callback() -> None:
                                     try:
                                         callback(event, self.connection)
                                     except TypeError:
                                         callback(event)
-
+                                
                                 asyncio.create_task(asyncio.to_thread(run_callback))
                         except Exception as e:
                             logger.warning(
@@ -838,12 +836,8 @@ class Listener:
                                 e,
                                 exc_info=True,
                             )
-                            raise
-                except asyncio.CancelledError:
-                    break
-                except Exception:
-                    raise
-                continue
+        except Exception as e:
+            logger.error("error processing message: %s", e, exc_info=True)
 
     def __repr__(self) -> str:
         s_idle = "[idle]" if self.idle.is_set() else "[busy]"

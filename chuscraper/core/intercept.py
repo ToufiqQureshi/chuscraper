@@ -1,10 +1,13 @@
 import asyncio
 import typing
+import logging
 
 from chuscraper import cdp
 from chuscraper.cdp.fetch import HeaderEntry, RequestStage, RequestPattern
 from chuscraper.cdp.network import ResourceType
 from chuscraper.core.connection import Connection
+
+logger = logging.getLogger(__name__)
 
 
 class BaseFetchInterception:
@@ -79,7 +82,10 @@ class BaseFetchInterception:
 
     async def _teardown(self) -> None:
         self._remove_response_handler()
-        await self.tab.send(cdp.fetch.disable())
+        try:
+            await self.tab.send(cdp.fetch.disable())
+        except Exception:
+            pass  # Ignore errors during teardown
 
     async def reset(self) -> None:
         """
@@ -110,10 +116,16 @@ class BaseFetchInterception:
         return body
 
     async def fail_request(self, error_reason: cdp.network.ErrorReason) -> None:
-        request_id = (await self.response_future).request_id
-        await self.tab.send(
-            cdp.fetch.fail_request(request_id=request_id, error_reason=error_reason)
-        )
+        try:
+            request_id = (await self.response_future).request_id
+            await self.tab.send(
+                cdp.fetch.fail_request(request_id=request_id, error_reason=error_reason)
+            )
+        except Exception as e:
+            if "Invalid InterceptionId" in str(e):
+                logger.debug("Ignored Invalid InterceptionId in fail_request")
+                return
+            raise
 
     async def continue_request(
         self,
@@ -123,17 +135,23 @@ class BaseFetchInterception:
         headers: typing.Optional[typing.List[HeaderEntry]] = None,
         intercept_response: typing.Optional[bool] = None,
     ) -> None:
-        request_id = (await self.response_future).request_id
-        await self.tab.send(
-            cdp.fetch.continue_request(
-                request_id=request_id,
-                url=url,
-                method=method,
-                post_data=post_data,
-                headers=headers,
-                intercept_response=intercept_response,
+        try:
+            request_id = (await self.response_future).request_id
+            await self.tab.send(
+                cdp.fetch.continue_request(
+                    request_id=request_id,
+                    url=url,
+                    method=method,
+                    post_data=post_data,
+                    headers=headers,
+                    intercept_response=intercept_response,
+                )
             )
-        )
+        except Exception as e:
+            if "Invalid InterceptionId" in str(e):
+                logger.debug("Ignored Invalid InterceptionId in continue_request")
+                return
+            raise
 
     async def fulfill_request(
         self,
@@ -143,17 +161,23 @@ class BaseFetchInterception:
         body: typing.Optional[str] = None,
         response_phrase: typing.Optional[str] = None,
     ) -> None:
-        request_id = (await self.response_future).request_id
-        await self.tab.send(
-            cdp.fetch.fulfill_request(
-                request_id=request_id,
-                response_code=response_code,
-                response_headers=response_headers,
-                binary_response_headers=binary_response_headers,
-                body=body,
-                response_phrase=response_phrase,
+        try:
+            request_id = (await self.response_future).request_id
+            await self.tab.send(
+                cdp.fetch.fulfill_request(
+                    request_id=request_id,
+                    response_code=response_code,
+                    response_headers=response_headers,
+                    binary_response_headers=binary_response_headers,
+                    body=body,
+                    response_phrase=response_phrase,
+                )
             )
-        )
+        except Exception as e:
+            if "Invalid InterceptionId" in str(e):
+                logger.debug("Ignored Invalid InterceptionId in fulfill_request")
+                return
+            raise
 
     async def continue_response(
         self,
@@ -162,13 +186,19 @@ class BaseFetchInterception:
         response_headers: typing.Optional[typing.List[HeaderEntry]] = None,
         binary_response_headers: typing.Optional[str] = None,
     ) -> None:
-        request_id = (await self.response_future).request_id
-        await self.tab.send(
-            cdp.fetch.continue_response(
-                request_id=request_id,
-                response_code=response_code,
-                response_phrase=response_phrase,
-                response_headers=response_headers,
-                binary_response_headers=binary_response_headers,
+        try:
+            request_id = (await self.response_future).request_id
+            await self.tab.send(
+                cdp.fetch.continue_response(
+                    request_id=request_id,
+                    response_code=response_code,
+                    response_phrase=response_phrase,
+                    response_headers=response_headers,
+                    binary_response_headers=binary_response_headers,
+                )
             )
-        )
+        except Exception as e:
+            if "Invalid InterceptionId" in str(e):
+                logger.debug("Ignored Invalid InterceptionId in continue_response")
+                return
+            raise

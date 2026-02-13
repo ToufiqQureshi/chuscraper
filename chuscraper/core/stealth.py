@@ -108,11 +108,21 @@ def get_stealth_scripts() -> list[str]:
         const noise = () => Math.floor(Math.random() * 10) - 5; # -5 to 5 delta
         
         const smudge = (context, width, height) => {
-             // We can't actually modify the pixels easily here without performance cost
-             // A lightweight approach is to shift a specific known mechanism or just ensure it's unique per session
-             // But valid anti-fingerprinting usually involves modifying the underlying data slightly.
-             // For now, we will leave this placeholder as actual canvas manipulation via JS proxy is complex and risky (can break visuals).
-             // The WebGL Spoofing above is often more important for modern bots.
+             // Active Noise Injection
+             // Slightly modify one random pixel to alter the canvas hash
+             // This is imperceptible to humans but changes the fingerprint
+             const imageData = context.getImageData(0, 0, width, height);
+             const data = imageData.data;
+             
+             // Pick a random pixel index (ensure it's within bounds)
+             for (let i = 0; i < 2; i++) {
+                 const idx = Math.floor(Math.random() * (data.length / 4)) * 4;
+                 // Modify Blue channel by +/- 1
+                 const noise = Math.random() > 0.5 ? 1 : -1;
+                 data[idx + 2] = Math.max(0, Math.min(255, data[idx + 2] + noise));
+             }
+             
+             context.putImageData(imageData, 0, 0);
         };
     })();
     """)

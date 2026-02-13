@@ -291,17 +291,16 @@ class Browser:
         """
         Handles Fetch.requestPaused. We just continue the request.
         """
-        try:
-            # We use create_task to avoid blocking the listener loop which causes ConcurrencyError
-            # if we try to send on the websocket while it's waiting for a message.
-            # However, connection.send is async and should be fine? 
-            # The issue is likely that we are inside a listener callback which is awaited by the read loop.
-            # If we send, it might be okay. But if we wait for a response that needs a read, it deadlocks/errors.
-            # continue_request is a command, it waits for a response (ack).
-            # So we should run it in background to free up the read loop.
-            asyncio.create_task(connection.send(cdp.fetch.continue_request(request_id=event.request_id)))
-        except Exception:
-            pass 
+        async def safe_continue() -> None:
+            try:
+                # continue_request is a command, it waits for a response (ack).
+                # So we should run it in background to free up the read loop.
+                await connection.send(cdp.fetch.continue_request(request_id=event.request_id))
+            except Exception:
+                # Ignore errors if request is already closed or invalid interception ID
+                pass
+
+        asyncio.create_task(safe_continue()) 
 
     async def _apply_stealth_and_timezone(self, tab_obj: tab.Tab) -> None:
         """
@@ -322,7 +321,13 @@ class Browser:
              try:
                 # Enable Fetch for all requests (no patterns) so we catch Auth.
                 # We handle requestPaused to avoid hangs.
-                await tab_obj.send(cdp.fetch.enable(handle_auth_requests=True))
+                # Enable Fetch ONLY for Auth. 
+                # We use a dummy pattern to prevent pausing all network requests which causes massive performance hits/hangs.
+                # Only AuthRequired events will be relevant for us here.
+                await tab_obj.send(cdp.fetch.enable(
+                    patterns=[cdp.fetch.RequestPattern(url_pattern="http://non-existent-dummy-url.com/ignore")], 
+                    handle_auth_requests=True
+                ))
                 logger.debug(f"Enabled CDP Auth (with request interception) for tab {tab_obj}")
              except Exception as e:
                 logger.debug(f"Failed to enable CDP Auth for {tab_obj}: {e}")
@@ -455,6 +460,11 @@ class Browser:
 
         exe = self.config.browser_executable_path
         params = self.config()
+        
+        # CRM: Advanced Stealth - Disable Automation Control Flag
+        # This is CRITICAL for bypassing bot detection (MakeMyTrip, Cloudflare)
+        params.append("--disable-blink-features=AutomationControlled")
+        
         params.append("about:blank")
 
         logger.info(
