@@ -1,6 +1,6 @@
 [project]
 name = "chuscraper"
-version = "0.15.4"
+version = "0.15.5"
 description = "A blazing fast, async-first, undetectable webscraping/web automation framework"
 readme = "README.md"
 authors = [{ name = "Toufiq Qureshi", email = "toufiq@example.com" }]
@@ -17,10 +17,6 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 config = { }
-[project.urls]
-Homepage = "https://github.com/ToufiqQureshi/chuscraper"
-Repository = "https://github.com/ToufiqQureshi/chuscraper"
-Issues = "https://github.com/ToufiqQureshi/chuscraper/issues"
 requires-python = ">=3.10"
 dependencies = [
     "asyncio-atexit>=1.0.1",
@@ -30,6 +26,11 @@ dependencies = [
     "mss>=9.0.2",
     "websockets>=14.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ToufiqQureshi/chuscraper"
+Repository = "https://github.com/ToufiqQureshi/chuscraper"
+Issues = "https://github.com/ToufiqQureshi/chuscraper/issues"
 
 [build-system]
 requires = ["hatchling"]
