@@ -1,6 +1,8 @@
-# Chuscraper v0.15.3 🚀
+# Chuscraper v0.15.4 🚀
 
-First official release of **Chuscraper**, the undetectable web scraping framework.
+**Automated Release Update**
+
+Fixed build issues and streamlined the deployment process.
 
 ## 🔥 Key Features
 - **Undetectable Stealth Mode**: Use `stealth=True` to bypass anti-bots (Akamai, Cloudflare).
