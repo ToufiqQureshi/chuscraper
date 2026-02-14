@@ -730,6 +730,82 @@ class Tab(Connection):
         # serialization_options.serialization="deep"
         return cast(DeepSerializedValue, remote_object.deep_serialized_value).value
 
+    async def ai_extract(
+        self,
+        prompt: str,
+        schema: Optional[Type[BaseModel]] = None,
+        provider: Optional[Any] = None,
+    ) -> Any:
+        """
+        Extracts structured data from the current page content using AI.
+        Inspired by ScrapeGraphAI but faster and integrated.
+
+        :param prompt: Natural language instruction (e.g., "Extract product names and prices").
+        :param schema: Pydantic model class for structured data.
+        :param provider: LLM provider (defaults to Gemini if GEMINI_API_KEY is set).
+        """
+        from .. import ai
+
+        # Get full HTML robustly
+        html = await self.evaluate("document.documentElement.outerHTML")
+        if not html:
+             # Fallback or wait? Let's try to wait if it's completely empty
+             await self.sleep(1)
+             html = await self.evaluate("document.documentElement.outerHTML")
+
+        return await ai.extract(
+            html=cast(str, html), prompt=prompt, schema=schema, provider=provider
+        )
+
+    async def ai_ask(self, query: str, provider: Optional[Any] = None) -> str:
+        """
+        Answers a question about the current page content using AI.
+
+        :param query: Natural language question (e.g., "What is the check-in time?").
+        :param provider: LLM provider.
+        """
+        from .. import ai
+
+        html = await self.evaluate("document.documentElement.outerHTML")
+        return await ai.ask(html=cast(str, html), query=query, provider=provider)
+
+    async def ai_pilot(self, goal: str, max_steps: int = 10, provider: Optional[Any] = None) -> bool:
+        """
+        Runs an autonomous agent loop to achieve a goal.
+        Example: page.ai_pilot("Search for flights to Delhi")
+
+        :param goal: Natural language goal.
+        :param max_steps: Maximum steps before giving up.
+        :param provider: LLM provider.
+        """
+        from .. import ai
+        pilot = ai.AIPilot(self, provider=provider)
+        return await pilot.run(goal, max_steps=max_steps)
+
+    async def ai_visual_extract(self, prompt: str, schema: Optional[Type[BaseModel]] = None, provider: Optional[Any] = None) -> Any:
+        """
+        Extracts data using screenshots (Vision). 
+        Useful when HTML is messy or contents are in Canvas/Images.
+
+        :param prompt: Instruction for extraction.
+        :param schema: Pydantic model for structured data.
+        :param provider: LLM provider (must support vision).
+        """
+        from .. import ai
+        vision = ai.VisionScraper(self, provider=provider)
+        return await vision.extract(prompt, schema=schema)
+
+    async def ai_learn_selector(self, description: str, provider: Optional[Any] = None) -> str:
+        """
+        Learns a robust CSS/Xpath selector for an element described in natural language.
+        
+        :param description: Description of the element (e.g., "The blue signup button in the header").
+        :param provider: LLM provider.
+        """
+        from .. import ai
+        gen = ai.SelectorGenerator(self, provider=provider)
+        return await gen.learn(description)
+
     async def js_dumps(
         self, obj_name: str, return_by_value: Optional[bool] = True
     ) -> (

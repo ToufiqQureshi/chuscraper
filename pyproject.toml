@@ -1,6 +1,6 @@
 [project]
 name = "chuscraper"
-version = "0.16.1"
+version = "0.16.2"
 description = "A blazing fast, async-first, undetectable webscraping/web automation framework"
 readme = "README.md"
 authors = [{ name = "Toufiq Qureshi", email = "toufiq@example.com" }]
@@ -25,7 +25,15 @@ dependencies = [
     "grapheme>=0.6.0",
     "mss>=9.0.2",
     "websockets>=14.0",
+]
+
+[project.optional-dependencies]
+ai = [
     "beautifulsoup4>=4.12.0",
+    "google-genai>=1.0.0",
+    "google-generativeai>=0.8.0",
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.urls]

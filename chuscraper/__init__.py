@@ -12,6 +12,7 @@ from chuscraper.core.element import Element
 from chuscraper.core.tab import Tab
 from chuscraper.core.util import loop, start
 from chuscraper.core.keys import KeyEvents, SpecialKeys, KeyPressEvent, KeyModifiers
+from chuscraper import ai
 
 __all__ = [
     "__version__",
@@ -30,4 +31,5 @@ __all__ = [
     "SpecialKeys",
     "KeyPressEvent",
     "KeyModifiers",
+    "ai",
 ]
