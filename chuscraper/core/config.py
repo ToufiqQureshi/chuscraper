@@ -98,21 +98,11 @@ class Config:
         self.headless = headless
         self.sandbox = sandbox
         
-        # User Agent Rotation
-        if not user_agent and stealth:
-            # If stealth is on and no UA provided, pick a random modern desktop UA
-            # This prevents the default "HeadlessChrome" or "Automation" UA leaks
-            user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            ]
-            self.user_agent = secrets.choice(user_agents)
-            logger.debug(f"Rotated User-Agent to: {self.user_agent}")
-        else:
-            self.user_agent = user_agent
+        # PATCHRIGHT BEST PRACTICE: Do NOT inject custom User-Agent.
+        # Let Chrome use its REAL, NATIVE User-Agent. Custom UAs create
+        # fingerprint mismatches (platform, version, etc) that anti-bots detect.
+        # Ref: https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-python
+        self.user_agent = user_agent  # Only set if user explicitly provides one
         self.host = host
         self.port = port
         self.expert = expert
@@ -151,6 +141,19 @@ class Config:
         # other keyword args will be accessible by attribute
         self.__dict__.update(kwargs)
         super().__init__()
+        # PATCHRIGHT-LEVEL: Hardened command flags
+        # Ref: https://github.com/Kaliiiiiiiiii-Vinyzu/patchright
+        #
+        # REMOVED (detectable as stealth driver):
+        #   --enable-automation (exposes navigator.webdriver)
+        #   --disable-component-update (flags as automation)
+        #   --disable-popup-blocking (flags as automation)
+        #   --disable-default-apps (flags as automation)
+        #   --disable-extensions (blocks our proxy auth extension)
+        #
+        # ADDED:
+        #   --disable-blink-features=AutomationControlled (hides webdriver)
+        #
         self._default_browser_args = [
             "--remote-allow-origins=*",
             "--no-first-run",
@@ -161,12 +164,12 @@ class Config:
             "--password-store=basic",
             "--disable-infobars",
             "--disable-breakpad",
-            "--disable-component-update",
+            "--disable-blink-features=AutomationControlled",
             "--disable-backgrounding-occluded-windows",
             "--disable-renderer-backgrounding",
             "--disable-background-networking",
             "--disable-dev-shm-usage",
-            "--disable-features=IsolateOrigins,DisableLoadExtensionCommandLineSwitch,site-per-process",
+            "--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch",
             "--disable-session-crashed-bubble",
             "--disable-search-engine-choice-screen",
         ]
@@ -237,7 +240,7 @@ class Config:
         args = self._default_browser_args.copy()
 
         args += ["--user-data-dir=%s" % self.user_data_dir]
-        args += ["--disable-features=IsolateOrigins,site-per-process"]
+        args += ["--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch"]
         args += ["--disable-session-crashed-bubble"]
         if self.expert:
             args += ["--disable-web-security", "--disable-site-isolation-trials"]

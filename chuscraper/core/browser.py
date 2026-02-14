@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import http
 import http.cookiejar
@@ -304,33 +305,13 @@ class Browser:
 
     async def _apply_stealth_and_timezone(self, tab_obj: tab.Tab) -> None:
         """
-        Applies stealth scripts, timezone override, and proxy auth to a tab.
+        Applies stealth scripts, timezone override to a tab.
+        PATCHRIGHT-LEVEL: Proxy auth handled by Extension (not CDP Fetch).
+        CDP Fetch.enable causes ALL requests to pause, leading to hangs.
         """
-        # 1. Setup Proxy Auth (CDP) - Per Tab
-        if self.config.proxy and "@" in self.config.proxy:
-             # Create a specialized handler for this tab
-             async def tab_auth_handler(event: cdp.fetch.AuthRequired):
-                 await self._handle_auth(event, tab_obj)
-             
-             async def tab_request_handler(event: cdp.fetch.RequestPaused):
-                 await self._handle_request_paused(event, tab_obj)
-             
-             tab_obj.handlers[cdp.fetch.AuthRequired] = [tab_auth_handler]
-             tab_obj.handlers[cdp.fetch.RequestPaused] = [tab_request_handler]
-             
-             try:
-                # Enable Fetch for all requests (no patterns) so we catch Auth.
-                # We handle requestPaused to avoid hangs.
-                # Enable Fetch ONLY for Auth. 
-                # We use a dummy pattern to prevent pausing all network requests which causes massive performance hits/hangs.
-                # Only AuthRequired events will be relevant for us here.
-                await tab_obj.send(cdp.fetch.enable(
-                    patterns=[cdp.fetch.RequestPattern(url_pattern="http://non-existent-dummy-url.com/ignore")], 
-                    handle_auth_requests=True
-                ))
-                logger.debug(f"Enabled CDP Auth (with request interception) for tab {tab_obj}")
-             except Exception as e:
-                logger.debug(f"Failed to enable CDP Auth for {tab_obj}: {e}")
+        # 1. Proxy Auth: Handled by Chrome Extension (loaded in start())
+        # Extension uses chrome.proxy.settings + onAuthRequired
+        # This is the ONLY reliable method that doesn't hang.
 
         # 2. Setup Timezone
         if self.config.timezone:
@@ -339,7 +320,9 @@ class Browser:
             except Exception as e:
                 logger.debug(f"Failed to set timezone for {tab_obj}: {e}")
 
-        # 3. Setup Stealth
+        # 3. Setup Stealth Scripts
+        # TODO (Phase 2): Replace addScriptToEvaluateOnNewDocument with
+        # Route-based injection to avoid Runtime.enable leak
         if self.config.stealth:
             scripts = stealth.get_stealth_scripts()
             for script in scripts:
@@ -389,12 +372,21 @@ class Browser:
                 )
             )
             # get the connection matching the new target_id from our inventory
-            connection: tab.Tab = next(
-                filter(
-                    lambda item: item.type_ == "page" and item.target_id == target_id,
-                    self.targets,
-                )
-            )  # type: ignore
+            # Retry loop to handle race condition where event loop hasn't updated self.targets yet
+            connection: tab.Tab = None
+            for _ in range(20):
+                try:
+                    connection = next(
+                        filter(
+                            lambda item: item.type_ == "page" and item.target_id == target_id,
+                            self.targets,
+                        )
+                    )
+                    break
+                except StopIteration:
+                    await asyncio.sleep(0.1)
+            else:
+                 raise RuntimeError(f"New target {target_id} not found/registered")
             connection.browser = self
         else:
             # first tab from browser.tabs
@@ -455,15 +447,29 @@ class Browser:
                 % ",".join(str(_) for _ in self.config._extensions)
             )  # noqa
 
-        if self.config.lang is not None:
-            self.config.add_argument(f"--lang={self.config.lang}")
+        # PATCHRIGHT-LEVEL: Local Proxy Forwarding (The "Golden Standard")
+        # Instead of Extensions or CDP (which fail/hang), we start a local TCP proxy
+        # that handles upstream authentication transparently.
+        # Chrome just sees an open proxy on localhost.
+        if self.config.proxy:
+             from . import local_proxy
+             
+             # Start local proxy
+             self._local_proxy = local_proxy.LocalAuthProxy(self.config.proxy)
+             local_port = await self._local_proxy.start()
+             
+             # Point Chrome to local proxy
+             # This overrides the original proxy string in config
+             # ensuring config() generates the correct --proxy-server flag
+             original_proxy = self.config.proxy
+             self.config.proxy = f"http://127.0.0.1:{local_port}"
+             logger.info(f"Started Local Auth Proxy: 127.0.0.1:{local_port} -> {original_proxy}")
 
         exe = self.config.browser_executable_path
         params = self.config()
         
-        # CRM: Advanced Stealth - Disable Automation Control Flag
-        # This is CRITICAL for bypassing bot detection (MakeMyTrip, Cloudflare)
-        params.append("--disable-blink-features=AutomationControlled")
+        # Note: --disable-blink-features=AutomationControlled is now in
+        # config._default_browser_args. No need to add it here.
         
         params.append("about:blank")
 
@@ -732,26 +738,17 @@ class Browser:
         if self._process:
             try:
                 self._process.terminate()
-                logger.debug("gracefully stopping browser process")
-                # wait 3 seconds for the browser to stop
-                for _ in range(12):
-                    if self._process.returncode is not None:
-                        break
-                    await asyncio.sleep(0.25)
-                else:
-                    logger.debug("browser process did not stop. killing it")
+                try:
+                    import subprocess
+                    await asyncio.to_thread(self._process.wait, timeout=2.0)
+                except (asyncio.TimeoutError, subprocess.TimeoutExpired):
                     self._process.kill()
-                    logger.debug("killed browser process")
-
-                await asyncio.to_thread(self._process.wait)
-
+                    await asyncio.to_thread(self._process.wait)
             except ProcessLookupError:
-                # ignore this well known race condition because it only means that
-                # the process was not found while trying to terminate or kill it
                 pass
-
-            self._process = None
-            self._process_pid = None
+                
+        self._process = None
+        self._process_pid = None
 
         await self._cleanup_temporary_profile()
 
