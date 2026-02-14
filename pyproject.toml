@@ -1,6 +1,6 @@
 [project]
 name = "chuscraper"
-version = "0.16.0"
+version = "0.16.1"
 description = "A blazing fast, async-first, undetectable webscraping/web automation framework"
 readme = "README.md"
 authors = [{ name = "Toufiq Qureshi", email = "toufiq@example.com" }]
