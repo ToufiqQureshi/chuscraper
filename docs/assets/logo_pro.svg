@@ -1,0 +1,32 @@
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Chuscraper: Minimalist Professional Logo (v3) -->
+  
+  <!-- Symmetrical Geometric Spider Legs -->
+  <g fill="none" stroke="#00E5FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Top Legs -->
+    <path d="M 170,140 L 140,80 L 80,100" />
+    <path d="M 230,140 L 260,80 L 320,100" />
+    
+    <!-- Middle Legs -->
+    <path d="M 160,200 L 100,180 L 60,220" />
+    <path d="M 240,200 L 300,180 L 340,220" />
+    
+    <!-- Bottom Legs -->
+    <path d="M 180,260 L 140,320 L 80,300" />
+    <path d="M 220,260 L 260,320 L 320,300" />
+  </g>
+  
+  <!-- Central Professional Core -->
+  <circle cx="200" cy="200" r="50" fill="#121212" stroke="#00E5FF" stroke-width="4" />
+  
+  <!-- Stylized 'C' inside Core -->
+  <path d="M 225,180 A 30,30 0 1 0 225,220" 
+        fill="none" 
+        stroke="#00E5FF" 
+        stroke-width="12" 
+        stroke-linecap="round" />
+        
+  <!-- Neural Connectivity Detail -->
+  <circle cx="200" cy="150" r="5" fill="#00E5FF" />
+  <circle cx="200" cy="250" r="5" fill="#00E5FF" />
+</svg>

@@ -16,7 +16,7 @@
 [![linting: pylint](https://img.shields.io/badge/linting-pylint-yellowgreen?style=for-the-badge)](https://github.com/ToufiqQureshi/chuscraper)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-[![Chuscraper Banner](docs/assets/logo_clean.svg)](https://github.com/ToufiqQureshi/chuscraper)
+[![Chuscraper Banner](docs/assets/logo_pro.svg)](https://github.com/ToufiqQureshi/chuscraper)
 
 <p align="center">
 <a href="https://github.com/ToufiqQureshi/chuscraper" target="_blank"><img src="https://img.shields.io/badge/GitHub-Trending-blue?style=for-the-badge&logo=github" alt="Chuscraper | Trending" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -27,7 +27,7 @@
 Just say which information you want to extract and the library will do it for you!
 
 <p align="center">
-  <img src="docs/assets/logo_clean.svg" alt="Chuscraper Logo" width="300">
+  <img src="docs/assets/logo_pro.svg" alt="Chuscraper Logo" width="300">
 </p>
 
 
