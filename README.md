@@ -1,85 +1,98 @@
 # Chuscraper 🚀
 
-**The Undetectable Web Scraping Framework**
+**The Undetectable & Agentic Web Scraping Framework**
 
-`chuscraper` is a powerful, async-first web automation library designed to bypass the toughest anti-bot protections (Akamai, Cloudflare, Datadome, etc.). It is built on top of the Chrome DevTools Protocol (CDP) and includes advanced stealth techniques out-of-the-box.
+`chuscraper` is a next-gen, async-first web automation library designed to bypass the toughest anti-bot protections (Akamai, Cloudflare, Datadome, etc.). Combined with **Agentic AI**, it can autonomously navigate, extract data from complex views (Vision), and heal itself from selector changes.
 
 ---
 
 ## 🔥 Key Features
 
-- **🛡️ Undetectable Stealth Mode**:
-  - Automatically hides `navigator.webdriver`.
-  - Mocks `navigator.permissions`, `navigator.plugins`, and `navigator.mimeTypes`.
-  - **Pro Features**:
-    - **Canvas & WebGL Noise**: Randomizes fingerprinting to avoid tracking.
-    - **Hardware Spoofing**: Simulates high-end PC specs (8 Cores, 8GB RAM).
-    - **Smart UA Rotation**: Rotates modern Desktop User-Agents per session.
+### 🛡️ Undetectable Stealth Mode
+- **Canvas & WebGL Noise**: Randomizes fingerprinting to avoid tracking.
+- **Hardware Spoofing**: Simulates high-end PC specs (8 Cores, 8GB RAM).
+- **Smart UA Rotation**: Rotates modern Desktop User-Agents per session.
+- **Navigator Obfuscation**: Hides `navigator.webdriver` and mocks browser plugins.
 
-- **🔒 Built-in Proxy Auth**:
-  - Direct CDP-based proxy authentication (no extensions required).
-  - Supports `http://user:pass@host:port` format seamlessly.
-  - Bypasses proxy authentication popups automatically.
+### 🤖 Agentic AI (Powered by Gemini/OpenAI)
+- **Autonomous Pilot**: Navigate websites using natural language (e.g., "Find a flight to London").
+- **Multi-modal Vision**: Extract data from screenshots when HTML is messy or obfuscated.
+- **Self-Healing Selectors**: AI learns robust CSS selectors that persist even after UI updates.
+- **Structured Extraction**: Extract data directly into Pydantic models with 100% validation.
 
-- **🌍 Timezone & Geolocation**:
-  - Automatically overrides system timezone to match your proxy (e.g., `Asia/Kolkata`).
+### 🔒 Enterprise Readiness
+- **CDP-based Proxy Auth**: Support for `user:pass@host:port` without extensions.
+- **Timezone Sync**: Automatically matches browser timezone to proxy location.
+- **Blazing Fast**: Optimized CDP commands for high-concurrency performance.
 
-- **⚡ Blazing Fast**:
-  - Uses specific CDP commands to avoid bloat.
-  - Lightweight and optimized for high-concurrency scraping.
+---
 
 ## 📦 Installation
 
-```bash
-# Clone the repo
-git clone https://github.com/ToufiqQureshi/chuscraper.git
-cd chuscraper
+Choose the version that fits your needs:
 
-# Install dependencies (if any specific ones, otherwise uses standard libs)
-pip install -e .
+```bash
+# Core Only (Ultra Lightweight)
+pip install chuscraper
+
+# Advanced AI Suite (Pilot, Vision, Extraction)
+pip install chuscraper[ai]
 ```
+
+---
 
 ## 🚀 Quick Start
 
-### 1. Basic Usage (Stealth + Proxy)
+### 1. Autonomous Navigation (AI Pilot)
+Let the AI handle the clicks and typing to reach your goal.
 
 ```python
 import asyncio
-import chuscraper
+from chuscraper import start
 
 async def main():
-    # Start browser with Stealth Mode and Proxy
-    browser = await chuscraper.start(
-        stealth=True,
-        proxy="http://user:pass@proxy.example.com:8080",
-        timezone="Asia/Kolkata"  # Match your proxy location
-    )
+    browser = await start(headless=False)
+    page = await browser.get("https://www.makemytrip.com/")
 
-    page = await browser.get("https://whoer.net")
+    # AI Pilot handles the search autonomously
+    await page.ai_pilot("Search for hotels in Goa for next weekend")
     
-    # Verify IP and camouflage
-    print(f"Title: {await page.title}")
-    
-    await asyncio.sleep(10)
+    # Extract data using Vision
+    data = await page.ai_visual_extract("Extract first 3 hotel names and prices")
+    print(data)
+
     await browser.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-## 🛠️ Configuration
+### 2. Stealth & Proxy (Core)
+```python
+browser = await chuscraper.start(
+    stealth=True,
+    proxy="http://user:pass@proxy.example.com:8080",
+    timezone="Asia/Kolkata"
+)
+page = await browser.get("https://whoer.net")
+print(f"Camouflage Status: {await page.title}")
+```
 
-| Argument | Type | Description |
-| :--- | :--- | :--- |
-| `stealth` | `bool` | Enable advanced anti-detection (Canvas noise, Hardware mocks, UA rotation). |
-| `proxy` | `str` | Proxy URL in `scheme://user:pass@host:port` format. |
-| `timezone` | `str` | Override browser timezone (e.g., `"Asia/Kolkata"`). |
-| `headless` | `bool` | Run in headless mode (default: `False`). |
+---
+
+## 🛠️ AI API Table
+
+| Method | Description |
+| :--- | :--- |
+| `ai_pilot(goal)` | Runs an autonomous agent to achieve a natural language goal. |
+| `ai_visual_extract(prompt, schema)` | Uses Vision (screenshots) to extract structured data. |
+| `ai_extract(prompt, schema)` | Semantically extracts data from the page HTML. |
+| `ai_learn_selector(desc)` | Learns a robust CSS/Xpath selector for an element. |
+
+---
 
 ## 🤝 Contributing
-
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📄 License
-
 MIT License
