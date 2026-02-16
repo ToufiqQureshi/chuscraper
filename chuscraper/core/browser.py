@@ -61,6 +61,7 @@ class Browser:
     _http: HTTPApi | None = None
     _cookies: CookieJar | None = None
     _update_target_info_mutex: asyncio.Lock = asyncio.Lock()
+    _local_proxy: Any | None = None
 
     config: Config
     connection: Connection | None
@@ -140,6 +141,7 @@ class Browser:
         self._process_pid = None
         self._is_updating = asyncio.Event()
         self.connection = None
+        self._local_proxy = None
         logger.debug("Session object initialized: %s" % vars(self))
 
     @property
@@ -207,8 +209,13 @@ class Browser:
                     filter(
                         lambda item: item.target_id == target_info.target_id,
                         self.targets,
-                    )
+                    ),
+                    None
                 )
+                if not current_tab:
+                    logger.debug(f"TargetInfoChanged for unknown target {target_info.target_id}")
+                    return
+
                 current_target = current_tab.target
 
                 if logger.getEffectiveLevel() <= 10:
@@ -247,13 +254,25 @@ class Browser:
 
             elif isinstance(event, cdp.target.TargetDestroyed):
                 current_tab = next(
-                    filter(lambda item: item.target_id == event.target_id, self.targets)
+                    filter(lambda item: item.target_id == event.target_id, self.targets),
+                    None
                 )
-                logger.debug(
-                    "target removed. id # %d => %s"
-                    % (self.targets.index(current_tab), current_tab)
+                if current_tab:
+                    logger.debug(
+                        "target removed. id # %d => %s"
+                        % (self.targets.index(current_tab), current_tab)
+                    )
+                    self.targets.remove(current_tab)
+
+            elif isinstance(event, cdp.target.TargetCrashed):
+                logger.error(f"CRITICAL: Target Crashed! ID: {event.target_id} Status: {event.status} Error: {event.error_code}")
+                current_tab = next(
+                    filter(lambda item: item.target_id == event.target_id, self.targets),
+                    None
                 )
-                self.targets.remove(current_tab)
+                if current_tab:
+                    logger.warning(f"Removing crashed target from list: {current_tab}")
+                    self.targets.remove(current_tab)
 
     async def _handle_auth(self, event: cdp.fetch.AuthRequired, connection: Connection) -> None:
         """
@@ -321,8 +340,6 @@ class Browser:
                 logger.debug(f"Failed to set timezone for {tab_obj}: {e}")
 
         # 3. Setup Stealth Scripts
-        # TODO (Phase 2): Replace addScriptToEvaluateOnNewDocument with
-        # Route-based injection to avoid Runtime.enable leak
         if self.config.stealth:
             scripts = stealth.get_stealth_scripts()
             for script in scripts:
@@ -715,9 +732,10 @@ class Browser:
                     del self._i
 
     async def stop(self) -> None:
-        if not self.connection and not self._process:
-            return
-
+        """
+        Stop the browser instance, including local proxies and temporary files.
+        Ensures proper cleanup of zombie processes.
+        """
         if self.connection and not self.connection.closed:
             try:
                 await self.connection.send(cdp.browser.close())
@@ -733,15 +751,27 @@ class Browser:
                 self._process.terminate()
                 try:
                     import subprocess
-                    await asyncio.to_thread(self._process.wait, timeout=2.0)
+                    await asyncio.to_thread(self._process.wait, timeout=3.0)
                 except (asyncio.TimeoutError, subprocess.TimeoutExpired):
+                    logger.warning("Browser process did not terminate gracefully, sending KILL signal.")
                     self._process.kill()
                     await asyncio.to_thread(self._process.wait)
             except ProcessLookupError:
                 pass
+            except Exception as e:
+                logger.error(f"Error while stopping browser process: {e}")
                 
         self._process = None
         self._process_pid = None
+
+        # Stop local proxy if it exists
+        if self._local_proxy:
+            try:
+                await self._local_proxy.stop()
+                logger.debug("Stopped local proxy")
+            except Exception as e:
+                logger.debug(f"Error stopping local proxy: {e}")
+            self._local_proxy = None
 
         await self._cleanup_temporary_profile()
 
@@ -749,22 +779,34 @@ class Browser:
         if not self.config or self.config.uses_custom_data_dir:
             return
 
-        for attempt in range(5):
+        user_data_path = pathlib.Path(self.config.user_data_dir)
+
+        # Exponential backoff retry logic for deletion
+        # This is crucial for Windows where files might be briefly locked
+        for attempt in range(10):
             try:
-                shutil.rmtree(self.config.user_data_dir, ignore_errors=False)
+                if user_data_path.exists():
+                    shutil.rmtree(self.config.user_data_dir, ignore_errors=False)
                 logger.debug(
                     "successfully removed temp profile %s" % self.config.user_data_dir
                 )
+                return
             except FileNotFoundError:
-                break
+                return
             except (PermissionError, OSError) as e:
-                if attempt == 4:
+                wait_time = 0.1 * (1.5 ** attempt) # 0.1, 0.15, 0.225...
+                if attempt > 5:
                     logger.debug(
-                        "problem removing data dir %s\nConsider checking whether it's there and remove it by hand\nerror: %s",
+                        f"Retry {attempt+1}/10: Could not remove data dir {self.config.user_data_dir} ({e}). Waiting {wait_time:.2f}s"
+                    )
+
+                if attempt == 9:
+                    logger.warning(
+                        "FINAL FAILURE: Could not remove temporary profile %s. You may need to delete it manually.\nError: %s",
                         self.config.user_data_dir,
                         e,
                     )
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(wait_time)
                 continue
 
     def __del__(self) -> None:
