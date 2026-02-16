@@ -112,36 +112,25 @@ await page.ai_extract("Extract data", provider=provider)
 
 We don't just claim to be stealthy; we prove it. Below are the results from top anti-bot detection suites, all passed with **100% "Human" status**.
 
+👉 **[View Full Visual Proofs & Screenshots Here](docs/STEALTH_PROOF.md)**
 
-![SannySoft WebDriver Test](docs/assets/proof/sannysoft_proof.png)
-**SannySoft:** WebDriver is hidden, Fingerprint is consistent.
-
-![BrowserScan Bot Detection](docs/assets/proof/browserscan_proof.png)
-**BrowserScan:** 100% Trust Score, No Bot traces detected.
-
-![PixelScan Consistency](docs/assets/proof/pixelscan_proof.png)
-**PixelScan:** All browser attributes are consistent and natural.
-
-![IPHey Trust Check](docs/assets/proof/iphey_proof.png)
-**IPHey:** Software fixed (Green). Hardware masked.
-
-![CreepJS Fingerprinting](docs/assets/proof/creepjs_proof.png)
-**CreepJS:** High entropy protection, No automation leaks.
-
-![Fingerprint.com Audit](docs/assets/proof/fingerprint_proof.png)
-**Fingerprint.com:** Commercial-grade bot detection bypassed.
+| Detection Suite | Result | Status |
+|----------------|--------|--------|
+| **SannySoft** | No WebDriver detected | ✅ Pass |
+| **BrowserScan** | 100% Trust Score | ✅ Pass |
+| **PixelScan** | Consistent Fingerprint | ✅ Pass |
+| **IPHey** | Software Clean (Green) | ✅ Pass |
+| **CreepJS** | 0% Stealth / 0% Headless | ✅ Pass |
+| **Fingerprint.com** | No Bot Detected | ✅ Pass |
 
 ### 🌍 Real-World Protection Bypass
 We tested `chuscraper` against live websites protected by major security providers:
 
-![Cloudflare Turnstile](docs/assets/proof/cloudflare_turnstile_proof.png)
-**Cloudflare Turnstile:** Challenge solved automatically.
-
-![DataDome Protection](docs/assets/proof/datadome_research_proof.png)
-**DataDome:** Research page accessed without blocking.
-
-![Akamai Bot Manager](docs/assets/proof/akamai_nike_proof.png)
-**Akamai (Nike):** Product page loaded successfully (Bot Manager bypassed).
+| Provider | Target | Result |
+|----------|--------|--------|
+| **Cloudflare** | Turnstile Demo | ✅ Solved Automatically |
+| **DataDome** | Antoine Vastel Research | ✅ Accessed |
+| **Akamai** | Nike Product Page | ✅ Bypassed |
 
 ---
 
