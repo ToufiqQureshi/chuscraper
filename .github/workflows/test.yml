@@ -5,11 +5,15 @@ on:
       - main
     paths:
       - "**.py"
+      - "scripts/**"
+      - ".github/workflows/test.yml"
   pull_request:
     branches:
       - main
     paths:
       - "**.py"
+      - "scripts/**"
+      - ".github/workflows/test.yml"
   workflow_dispatch:
 jobs:
   test:
@@ -29,8 +33,7 @@ jobs:
         env:
           ZENDRIVER_TEST_BROWSERS: "headless"
           ZENDRIVER_TEST_NO_SANDBOX: "true"
-        shell: bash
-        run: ./scripts/test.sh
+        run: bash ./scripts/test.sh
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         env:
