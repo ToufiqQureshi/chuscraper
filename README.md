@@ -112,25 +112,24 @@ await page.ai_extract("Extract data", provider=provider)
 
 We don't just claim to be stealthy; we prove it. Below are the results from top anti-bot detection suites, all passed with **100% "Human" status**.
 
-````carousel
+
 ![SannySoft WebDriver Test](docs/assets/proof/sannysoft_proof.png)
-SannySoft: WebDriver is hidden, Fingerprint is consistent.
-<!-- slide -->
+**SannySoft:** WebDriver is hidden, Fingerprint is consistent.
+
 ![BrowserScan Bot Detection](docs/assets/proof/browserscan_proof.png)
-BrowserScan: 100% Trust Score, No Bot traces detected.
-<!-- slide -->
+**BrowserScan:** 100% Trust Score, No Bot traces detected.
+
 ![PixelScan Consistency](docs/assets/proof/pixelscan_proof.png)
-PixelScan: All browser attributes are consistent and natural.
-<!-- slide -->
+**PixelScan:** All browser attributes are consistent and natural.
+
 ![IPHey Trust Check](docs/assets/proof/iphey_proof.png)
-IPHey: Software fixed (Green). Hardware masked.
-<!-- slide -->
+**IPHey:** Software fixed (Green). Hardware masked.
+
 ![CreepJS Fingerprinting](docs/assets/proof/creepjs_proof.png)
-CreepJS: High entropy protection, No automation leaks.
-<!-- slide -->
+**CreepJS:** High entropy protection, No automation leaks.
+
 ![Fingerprint.com Audit](docs/assets/proof/fingerprint_proof.png)
-Fingerprint.com: Commercial-grade bot detection bypassed.
-````
+**Fingerprint.com:** Commercial-grade bot detection bypassed.
 
 ---
 
