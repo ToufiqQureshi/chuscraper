@@ -21,15 +21,16 @@ import asyncio
 from chuscraper import start
 
 async def main():
-    # START BROWSER with Proxy & Stealth
-    # - proxy: triggers LocalAuthProxy (No popups, 100% masking)
-    # - stealth: patches navigator.webdriver, mock chrome props, etc.
+    # START BROWSER with Proxy & Stealth (Zero Boilerplate)
     browser = await start(
         proxy="http://user:pass@host:port",
         stealth=True,        # enable anti-detection
         headless=False,      # see what's happening
-        timezone="Asia/Kolkata" # optional: match proxy timezone
+        timezone="Asia/Kolkata" # match proxy timezone
     )
+
+    # 🟢 BROWSER SHORTCUT
+    await browser.goto("https://google.com")
 
     # OPEN NEW TAB
     # Uses robust target creation logic
@@ -60,6 +61,35 @@ if __name__ == "__main__":
 
 ---
 
+## 🕹️ Manual Control (The "Zero-Magic" Way)
+
+If you don't want Chuscraper to manage things automatically, use the **Connection Level** API. This gives you 100% control over windows and tabs.
+
+```python
+import asyncio
+import chuscraper as zd
+from chuscraper import cdp
+
+async def manual_control():
+    # 1. Start browser (No automatic tabs opened)
+    async with await zd.start(headless=False, stealth=True) as browser:
+        # 2. Get the default first tab
+        tab = browser.main_tab 
+        
+        # 3. Manual navigation (No 'smart' waiting)
+        await tab.send(cdp.page.navigate(url="https://google.com"))
+        
+        # 4. Explicit sleep
+        await asyncio.sleep(5)
+        
+        # 5. Extract Title
+        print(f"Current URL: {tab.url}")
+
+asyncio.run(manual_control())
+```
+
+---
+
 ## 📚 Core API Reference
 
 ### 1. `chuscraper.start(**kwargs)`
@@ -86,16 +116,21 @@ Manage the browser session.
 Represents a page/tab. Most work happens here.
 
 **Navigation & Waiting**
+- `await goto(url)`: Navigate (Smart wait). Alias for `get()`.
 - `await get(url)`: Navigate current tab.
-- `await wait(seconds)`: Sleep (async).
+- `await title()`: Returns page title (async).
+- `await wait(seconds=0)`: Sleep. If 0, waits for idle.
 - `await reload()`: Refresh page.
 
 **Finding Elements**
-- `await select(selector, timeout=10)`: Find element by CSS selector (waits until found).
-- `await find(text, timeout=10)`: Find element by visible text.
-- `await query_selector_all(selector)`: Get all matching elements.
+- `await select(selector, timeout=10)`: Find by CSS (auto-wait).
+- `await select_text(selector, timeout=10)`: One-liner to find element and return text.
+- `await find(text, timeout=10)`: Find by visible text.
+- `await query_selector_all(selector)`: Get all matches.
 
 **Interaction**
+- `await click(selector)`: Find and click.
+- `await type(selector, text)`: Find and type.
 - `await evaluate(js_code)`: Execute JavaScript. Returns result.
 - `await save_screenshot(filename)`: Capture page.
 - `await close()`: Close tab.

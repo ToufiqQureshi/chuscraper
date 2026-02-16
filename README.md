@@ -63,35 +63,47 @@ pip install chuscraper[ai]
 
 ---
 
-## 💻 Quick Start (Async)
+---
+
+## 💻 Quick Start (The "Easy" Way)
+
+Chuscraper is designed for **Zero Boilerplate**. You don't need complex configuration objects just to start a stealthy session.
 
 ```python
 import asyncio
-from chuscraper import start
+import chuscraper as zd
 
 async def main():
-    browser = await start(headless=False)
-    page = await browser.get("https://www.makemytrip.com/")
-    # ... see full examples in examples/ directory
-```
+    # DIRECT START: Specify stealth, proxy, or headless directly in start()
+    async with await zd.start(headless=False, stealth=True) as browser:
+        
+        # 🟢 BROWSER-LEVEL SHORTCUT
+        await browser.goto("https://www.makemytrip.com/")
+        
+        # 🟢 INTUITIVE ALIASES (goto, title, select_text)
+        page = browser.main_tab
+        await page.goto("https://example.com")
+        
+        title = await page.title()
+        header = await page.select_text("h1")
+        
+        print(f"Bhai, Title hai: {title}")
+        print(f"Header: {header}")
 
-> **🔥 New:** Check out our [Real-World Scraper Examples](docs/REAL_WORLD_EXAMPLES.md) for Amazon, Flipkart, Walmart, Google & more!
-    page = await browser.get("https://www.makemytrip.com/")
+        # 🤖 AI-POWERED PILOT
+        print("AI is navigating...")
+        await page.ai_pilot("Search hotels in Goa for next weekend")
 
-    # Tell the AI what to extract
-    print("AI is navigating...")
-    await page.ai_pilot("Search hotels in Goa for next weekend")
-
-    # Extract structured data
-    result = await page.ai_extract("Get the first 3 hotels with prices")
-    import json
-    print(json.dumps(result, indent=2))
-
-    await browser.stop()
+        # EXTRACT structured data
+        result = await page.ai_extract("Get the first 3 hotels with prices")
+        print(result)
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+> [!NOTE]
+> `chuscraper` automatically handles Chrome process cleanup and Local Proxy lifecycle.
 
 ---
 

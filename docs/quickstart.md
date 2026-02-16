@@ -9,27 +9,24 @@ pip install chuscraper
 # or uv add chuscraper, poetry add chuscraper, etc.
 ```
 
-## Basic usage
-
 Open a browser, navigate to a page, and scrape the content:
 
 ```python
 import asyncio
-import chuscraper as cs
+import chuscraper as zd
 
 async def main():
-    browser = await cs.start()
-    page = await browser.get('https://example.com')
+    # DIRECT START (No Config object needed)
+    async with await zd.start(headless=False, stealth=True) as browser:
+        
+        # New: goto() alias and title() method
+        await browser.goto('https://example.com')
+        
+        print(f"Bhai, Title hai: {await browser.main_tab.title()}")
 
-    # get HTML content of the page as a string
-    content = await page.get_content()
-
-    # save a screenshot
-    await page.save_screenshot()
-
-    # close the browser window
-    await browser.stop()
-
+        # Extract text in one line
+        header = await browser.main_tab.select_text("h1")
+        print(f"Header: {header}")
 
 if __name__ == '__main__':
     asyncio.run(main())
@@ -39,26 +36,21 @@ if __name__ == '__main__':
 
 ```python
 import asyncio
-import chuscraper as cs
+import chuscraper as zd
 
 async def main():
-    browser = await cs.start()
-    page = await browser.get('https://chuscraper.dev/')
-
-    elems = await page.select_all('*[src]')
-
-    for elem in elems:
-        await elem.flash()
-
-    page2 = await browser.get('https://twitter.com', new_tab=True)
-    page3 = await browser.get('https://github.com/ultrafunkamsterdam/nodriver', new_window=True)
-
-    for p in (page, page2, page3):
-        await p.bring_to_front()
-        await p.scroll_down(200)
-        await p   # wait for events to be processed
-        await p.reload()
-        if p != page3:
+    async with await zd.start(stealth=True) as browser:
+        # Easy navigation
+        await browser.goto('https://github.com')
+        
+        # Tab level control
+        page = browser.main_tab
+        await page.goto('https://google.com', new_tab=True)
+        
+        for p in browser.tabs:
+            title = await p.title()
+            print(f"Checking Tab: {title}")
+            await p.scroll_down(200)
             await p.close()
 
 if __name__ == '__main__':
