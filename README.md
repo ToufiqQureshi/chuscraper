@@ -123,7 +123,7 @@ BrowserScan: 100% Trust Score, No Bot traces detected.
 PixelScan: All browser attributes are consistent and natural.
 <!-- slide -->
 ![IPHey Trust Check](file:///d:/zendriver/chuscraper/docs/assets/proof/iphey_proof.png)
-IPHey: "Good" trust score, IP and Browser match perfectly.
+IPHey: Software fixed (Green). Hardware masked.
 <!-- slide -->
 ![CreepJS Fingerprinting](file:///d:/zendriver/chuscraper/docs/assets/proof/creepjs_proof.png)
 CreepJS: High entropy protection, No automation leaks.
