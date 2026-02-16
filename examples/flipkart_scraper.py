@@ -4,9 +4,8 @@ import chuscraper as zd
 import json
 
 async def main():
-    print("🚀 Starting Flipkart Scraper...")
+    print("🚀 Starting Flipkart Scraper (Standard Mode)...")
     
-    # 1. Configure Stealth Browser
     proxy_url = "http://11de131690b3fdc7ba16__cr.in:e3e7d1a8f82bd8e3@gw.dataimpulse.com:823"
     
     config = zd.Config(
@@ -20,51 +19,36 @@ async def main():
 
     async with await zd.start(config) as browser:
         try:
-            # 2. Go directly to a category page (simulating direct access)
+            # Go directly to a category page
             url = "https://www.flipkart.com/search?q=gaming+laptops"
             print(f"🌍 Navigating to {url}...")
             page = await browser.get(url)
             
-            # 3. Handle Login Popups (Common on Flipkart)
+            # Handle Login Popups
             try:
-                # Simple check if a close button exists for login popup
-                # Flipkart often changes this, but let's try a common one
-                if await page.query_selector("button._2KpZ6l._2doB4z"): # Old selector
-                    await page.click("button._2KpZ6l._2doB4z")
-                    print("❌ Closed login popup")
-                elif await page.query_selector("span[role='button']"): # Generic close
-                    # context dependent, risky but let's try if it covers modal
-                    pass 
+                # Common close button selector for Flipkart login modal
+                close_btn = "span._30XB9F, button._2KpZ6l._2doB4z" 
+                if await page.query_selector(close_btn):
+                    await page.click(close_btn)
+                    print("✅ Closed login popup")
             except:
                 pass
                 
-            # 4. Extract Data
-            print("👀 Extracting laptop deals...")
+            # Extract Data
+            print("👀 Extracting product listings...")
             
-            if os.environ.get("GEMINI_API_KEY"):
-                from chuscraper import chus_ai
-                print("🤖 Using AI Extraction...")
-                data = await chus_ai.extract(
-                    page,
-                    "Extract 5 laptops with: name, price, discount_percentage, and rating. Ignore accessories."
-                )
-            else:
-                print("⚡ No API Key found. Using Standard Selectors...")
-                # Standard Extraction Logic
-                data = []
-                # Flipkart uses varying classes, this is an example standard selector
-                # Note: Flipkart classes like ._1AtVbE or ._75nlfW are unstable.
-                # We'll use more generic attributes if possible or text search
-                cards = await page.query_selector_all("div._1AtVbE") 
-                # This is just a placeholder logic for standard scraping
-                # Real flipkart selectors are very messy and dynamic.
-                # AI is much better here. But demonstrating the fallback:
-                for card in cards[:5]:
-                    text = card.text
-                    if "Laptop" in text:
-                        data.append({"raw_text": text[:100] + "..."})
+            # Generic product card selector (Flipkart changes these often)
+            cards = await page.query_selector_all("div._1AtVbE, div._75nlfW") 
             
-            print("\n🎉 Extracted Data:\n")
+            data = []
+            for card in cards[:5]:
+                text = await card.inner_text()
+                if "Laptop" in text or "Processor" in text:
+                    data.append({
+                        "info": text[:120].replace("\n", " ") + "..."
+                    })
+            
+            print("\n🎉 Extracted Data (Standard):\n")
             print(json.dumps(data, indent=2))
             
             await asyncio.sleep(5)

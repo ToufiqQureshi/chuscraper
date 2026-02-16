@@ -120,7 +120,14 @@ class Transaction(asyncio.Future[Any]):
             return self.set_exception(ProtocolException(response["error"]))
         try:
             # try to parse the result according to the py cdp docs.
-            self.__cdp_obj__.send(response["result"])
+            try:
+                # IMPORTANT: Some responses don't have a 'result' key if they are just acknowledgments
+                result = response.get("result", {})
+                self.__cdp_obj__.send(result)
+            except ValueError as e:
+                print(f"CRITICAL CDP ERROR: {e}")
+                print(f"RESPONSE WAS: {response}")
+                raise e
         except StopIteration as e:
             # exception value holds the parsed response
             return self.set_result(e.value)

@@ -4,7 +4,7 @@ import chuscraper as zd
 import json
 
 async def main():
-    print("🚀 Starting Walmart Scraper...")
+    print("🚀 Starting Walmart Scraper (Standard Mode)...")
     
     # Walmart uses PerimeterX (Px), which is very strict.
     # High-quality Residential Proxy is critical here.
@@ -24,41 +24,32 @@ async def main():
             print("🌍 Navigating to Walmart...")
             page = await browser.get("https://www.walmart.com/")
             
-            # 3. Search
+            # Search
             query = "Sony PS5"
+            print(f"⌨️  Typing '{query}' and pressing Enter...")
             
-            if os.environ.get("GEMINI_API_KEY"):
-                from chuscraper import chus_ai
-                print(f"🤖 AI Pilot: Searching for '{query}'...")
-                await chus_ai.pilot(page, f"Type '{query}' in search bar and press Enter")
-            else:
-                print(f"⚡ No API Key. Using Standard Type & Enter for '{query}'...")
-                # Walmart search input ID can vary, but let's try common ones
-                # NOTE: Walmart uses shadow DOM or unique IDs often.
-                # We'll use a broad selector or assuming standard input
-                await page.type("input[type='search']", query)
-                await page.send_keys("Enter") 
+            # Using common search selector for Walmart
+            await page.wait_for_selector("input[type='search']")
+            await page.fill("input[type='search']", query)
+            await page.send_keys("Enter")
             
-            # 4. Extraction
-            print("👀 Extracting product info...")
+            # Wait for results
+            print("⏳ Waiting for results to load...")
+            await page.wait_for_selector("div[data-item-id]", timeout=15000)
             
-            if os.environ.get("GEMINI_API_KEY"):
-                from chuscraper import chus_ai
-                # Walmart HTML is heavy, AI extraction is perfect for this
-                products = await chus_ai.extract(
-                    page,
-                    "Extract top 3 products: title, price (current), and shipping info (e.g. '2-day shipping')."
-                )
-            else:
-                 print("⚡ Standard Extraction...")
-                 products = []
-                 # Placeholder for complex Walmart selector logic
-                 items = await page.query_selector_all("div[data-item-id]")
-                 for item in items[:3]:
-                     text = item.text
-                     products.append({"raw_text": text[:100] + "..."})
+            # Extraction
+            print("👀 Extracting top products...")
+            items = await page.query_selector_all("div[data-item-id]")
+            
+            products = []
+            for item in items[:3]:
+                # In standard mode, we extract available text/metadata
+                text = await item.inner_text()
+                products.append({
+                    "preview": text[:100].replace("\n", " ") + "..."
+                })
 
-            print("\n🎉 Extracted Products:\n")
+            print("\n🎉 Extracted Products (Manual):\n")
             print(json.dumps(products, indent=2))
             
             await asyncio.sleep(5)

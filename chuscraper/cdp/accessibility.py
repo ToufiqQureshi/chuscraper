@@ -337,6 +337,16 @@ class AXPropertyName(enum.Enum):
     LABELLEDBY = "labelledby"
     OWNS = "owns"
     URL = "url"
+    UNINTERESTING = "uninteresting"
+    NOT_RENDERED = "notRendered"
+
+    @classmethod
+    def _missing_(cls, value):
+        # Gracefully handle unknown values from newer Chrome versions
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj._name_ = str(value).upper()
+        return obj
 
     def to_json(self) -> str:
         return self.value

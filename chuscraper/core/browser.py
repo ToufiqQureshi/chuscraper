@@ -693,8 +693,9 @@ class Browser:
         self, exc_type: type[BaseException] | None, exc_val: Any, exc_tb: Any
     ) -> None:
         await self.stop()
-        if exc_type and exc_val:
-            raise exc_type(exc_val)
+        if exc_type:
+            # Let Python propagate the exception
+            return False
 
     def __iter__(self) -> Browser:
         main_tab = self.main_tab
