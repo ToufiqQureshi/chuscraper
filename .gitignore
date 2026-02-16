@@ -10,11 +10,17 @@ docs/release-notes.md
 
 # scratch files
 scratch/
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# Scraping Data & Private Scripts
+*.yaml
+examples/agoda_scraper*
+examples/mmt_scraper*
+examples/mmt_hotel_stress*
+mmt_block_iter_*.png
+mmt_load_check_*.png
+mmt_black_screen_*.png
+mmt_unknown_load_*.png
+*.xlsx
+*.log
 
 # C extensions
 *.so
