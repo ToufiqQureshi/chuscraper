@@ -4,8 +4,8 @@
 
 <h1 align="center">🕷️ Chuscraper</h1>
 <p align="center">
-  <strong>LLM + CDP powered undetectable web scraping & automation framework</strong><br/>
-  You Only Scrape Once — data extraction made smarter, faster, and stealthier.
+  <strong>LLM + CDP powered stealth-focused web scraping & automation framework</strong><br/>
+  You Only Scrape Once — data extraction made smarter, faster, and more resilient.
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 ---
 
 ## 🚀 What is Chuscraper?
-Chuscraper is a Python web scraping & automation library that uses **CDP (Chrome DevTools Protocol)** and **LLMs** to extract structured data, interact with pages, and automate workflows — all while staying *stealthy and undetected*.
+Chuscraper is a Python web scraping & automation library that uses **CDP (Chrome DevTools Protocol)** and **LLMs** to extract structured data, interact with pages, and automate workflows — with a heavy focus on **Anti-Detection** and **Stealth**.
 
 With AI-powered extraction, you tell it *what* to extract — it figures out *how*.
 
@@ -91,30 +91,40 @@ if __name__ == "__main__":
 ---
 
 ## 🤖 AI Usage with Providers
-Example using **OpenAIProvider**:
+Chuscraper supports multiple providers out-of-the-box.
 
+### 1. Gemini (Native)
+```python
+from chuscraper.ai.providers import GeminiProvider
+provider = GeminiProvider(api_key="YOUR_GEMINI_API_KEY")
+await page.ai_extract("Extract data", provider=provider)
+```
+
+### 2. OpenAI
 ```python
 from chuscraper.ai.providers import OpenAIProvider
-
 provider = OpenAIProvider(api_key="YOUR_OPENAI_API_KEY")
-await page.ai_extract("Extract prices and listings", provider=provider)
+await page.ai_extract("Extract data", provider=provider)
+```
+
+### 3. Local LLMs (via Ollama)
+```python
+from chuscraper.ai.providers import OllamaProvider
+# Uses Ollama's OpenAI-compatible API (default: localhost:11434)
+provider = OllamaProvider(model_name="llama3")
+await page.ai_extract("Extract data", provider=provider)
 ```
 
 ---
 
 ## 📖 Documentation
-Full docs available in the `docs/` folder:
+Full technical guides are available in the `docs/` folder:
 
-- [English](README.md)
-- [Chinese](docs/chinese.md)
-- [Japanese](docs/japanese.md)
-- [Korean](docs/korean.md)
-- [Russian](docs/russian.md)
-- [Turkish](docs/turkish.md)
-- [German](docs/german.md)
-- [Spanish](docs/spanish.md)
-- [French](docs/french.md)
-- [Portuguese](docs/portuguese.md)
+- [English (Main)](README.md)
+- [Project API Guide](docs/api_guide_v2.md)
+- [Stealth Comparison](docs/stealth_comparison.md)
+
+*Translations (Chinese, Japanese, etc.) coming soon.*
 
 ---
 

@@ -1,4 +1,4 @@
-from .providers import GeminiProvider, OpenAIProvider, AIProvider
+from .providers import GeminiProvider, OpenAIProvider, OllamaProvider, AIProvider
 from .nodes import AINodes
 from .schema import AISchemaHandler
 from .agent import AIPilot

@@ -111,3 +111,48 @@ class OpenAIProvider(AIProvider):
             response_format=response_format
         )
         return response.choices[0].message.content or ""
+
+class OllamaProvider(AIProvider):
+    def __init__(self, base_url: str = "http://localhost:11434/v1", model_name: str = "llama3"):
+        """
+        Uses Ollama's OpenAI-compatible API.
+        Ensure Ollama is running with OLLAMA_HOST=0.0.0.0 (if remote) or just local defaults.
+        """
+        try:
+            from openai import OpenAI
+            self.OpenAI = OpenAI
+        except ImportError:
+            raise ImportError("Please install 'openai' to use Ollama via its OpenAI-compatible API.")
+
+        # Ollama doesn't usually need an API key, so we use a dummy one
+        self.client = self.OpenAI(
+            base_url=base_url,
+            api_key="ollama"
+        )
+        self.model_name = model_name
+
+    async def generate_response(
+        self, 
+        prompt: str, 
+        system_instruction: Optional[str] = None,
+        json_mode: bool = False
+    ) -> str:
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        messages.append({"role": "user", "content": prompt})
+
+        # Note: Ollama handles json_mode if the model supports it and prompt asks for it.
+        # We pass it to the OpenAI-compatible client.
+        response_format = {"type": "json_object"} if json_mode else None
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                response_format=response_format
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.error(f"Ollama Error: {e}")
+            return f"Error connecting to Ollama: {e}"
