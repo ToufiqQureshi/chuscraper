@@ -274,6 +274,35 @@ class Tab(Connection):
 
             await self.sleep(0.5)
 
+    async def wait_for_selector(self, selector: str, timeout: Union[int, float] = 10) -> Element:
+        """Alias for select() to match Playwright/Puppeteer naming."""
+        return await self.select(selector, timeout)
+
+    async def click(self, selector: str, timeout: Union[int, float] = 10) -> None:
+        """Finds an element by selector and clicks it."""
+        elem = await self.select(selector, timeout)
+        await elem.click()
+
+    async def type(self, selector: str, text: str, timeout: Union[int, float] = 10) -> None:
+        """Finds an element by selector and types text into it."""
+        elem = await self.select(selector, timeout)
+        await elem.send_keys(text)
+
+    async def fill(self, selector: str, text: str, timeout: Union[int, float] = 10) -> None:
+        """Alias for type(). Finds an element and sends text."""
+        await self.type(selector, text, timeout)
+
+    async def send_keys(self, text: str) -> None:
+        """
+        Sends keys to the page (currently focused element).
+        Useful for sending native keys like "Enter", "Tab", etc.
+        """
+        from .keys import KeyEvents, KeyPressEvent
+        
+        cluster_list = KeyEvents.from_text(text, KeyPressEvent.DOWN_AND_UP)
+        for cluster in cluster_list:
+             await self.send(cdp.input_.dispatch_key_event(**cluster))
+
     async def find_all(
         self,
         text: str,

@@ -32,6 +32,7 @@ class LocalAuthProxy:
             
         self.server = None
         self.local_port = None
+        self.tasks = set()
 
     async def start(self) -> int:
         """Starts the local proxy server and returns the port."""
@@ -51,9 +52,18 @@ class LocalAuthProxy:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
+        
+        # Cancel all active client tasks
+        if self.tasks:
+            for task in self.tasks:
+                task.cancel()
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+            self.tasks.clear()
 
     async def handle_client(self, client_reader, client_writer):
         """Handles a connection from the browser."""
+        task = asyncio.current_task()
+        self.tasks.add(task)
         try:
             # Connect to upstream proxy
             upstream_reader, upstream_writer = await asyncio.open_connection(
@@ -97,11 +107,14 @@ class LocalAuthProxy:
                 self.pipe(upstream_reader, client_writer)
             )
 
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
             # logger.debug(f"Proxy tunnel error: {e}")
             pass
         finally:
             client_writer.close()
+            self.tasks.discard(task)
 
     async def pipe(self, reader, writer):
         try:

@@ -72,6 +72,11 @@ from chuscraper import start
 async def main():
     browser = await start(headless=False)
     page = await browser.get("https://www.makemytrip.com/")
+    # ... see full examples in examples/ directory
+```
+
+> **🔥 New:** Check out our [Real-World Scraper Examples](docs/REAL_WORLD_EXAMPLES.md) for Amazon, Flipkart, Walmart, Google & more!
+    page = await browser.get("https://www.makemytrip.com/")
 
     # Tell the AI what to extract
     print("AI is navigating...")
