@@ -4,29 +4,41 @@
 
 # 🕷️ Chuscraper: You Only Scrape Once
 
-[English](README.md) | [中文](docs/chinese.md) | [日本語](docs/japanese.md) | [한국어](docs/korean.md) | [Русский](docs/russian.md) | [Türkçe](docs/turkish.md)
+[English](README.md) | [中文](docs/chinese.md) | [日本語](docs/japanese.md)
+| [한국어](docs/korean.md)
+| [Русский](docs/russian.md) | [Türkçe](docs/turkish.md)
+| [Deutsch](docs/german.md)
+| [Español](docs/spanish.md)
+| [français](docs/french.md)
+| [Português](docs/portuguese.md)
 
-[![PyPI version](https://img.shields.io/pypi/v/chuscraper?style=for-the-badge&color=green)](https://pypi.org/project/chuscraper/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/chuscraper?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/chuscraper)
+[![linting: pylint](https://img.shields.io/badge/linting-pylint-yellowgreen?style=for-the-badge)](https://github.com/ToufiqQureshi/chuscraper)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Python Versions](https://img.shields.io/pypi/pyversions/chuscraper?style=for-the-badge)](https://pypi.org/project/chuscraper/)
-[![Clean Code](https://img.shields.io/badge/Code%20Quality-A-brightgreen?style=for-the-badge)](https://github.com/ToufiqQureshi/chuscraper)
 
-> [!TIP]
-> **Web data extraction at scale? Try Chuscraper Cloud 😉**
+[![API Banner](docs/assets/logo.png)](https://github.com/ToufiqQureshi/chuscraper)
 
-[Chuscraper](https://github.com/ToufiqQureshi/chuscraper) is a *web scraping* python library that uses LLM and direct CDP logic to create scraping pipelines for websites and local documents.
+<p align="center">
+<a href="https://github.com/ToufiqQureshi/chuscraper" target="_blank"><img src="https://img.shields.io/badge/GitHub-Trending-blue?style=for-the-badge&logo=github" alt="Chuscraper | Trending" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+</p>
+
+[Chuscraper](https://github.com/ToufiqQureshi/chuscraper) is a *web scraping* python library that uses LLM and direct CDP logic to create scraping pipelines for websites and local documents (XML, HTML, JSON, Markdown, etc.).
 
 Just say which information you want to extract and the library will do it for you!
 
-![Chuscraper Hero](docs/assets/logo.png)
+<p align="center">
+  <img src="docs/assets/logo.png" alt="Chuscraper Hero" style="width: 100%;">
+</p>
+
 
 ## 🚀 Integrations
-Chuscraper offers seamless integration with popular frameworks and tools to enhance your scraping capabilities. Whether you're building with Python, using LLM frameworks, or working with no-code platforms, we've got you covered.
+Chuscraper offers seamless integration with popular frameworks and tools to enhance your scraping capabilities. Whether you're building with Python, using LLM frameworks, or working with AI agents, we've got you covered with our comprehensive integration options.
 
 **Integrations**:
-- **LLM Frameworks**: Langchain, Llama Index, Crew.ai, Agno
 - **Providers**: OpenAI, Gemini (Native), Anthropic, Ollama
-- **Output**: Pydantic, JSON, CSV, Markdown
+- **LLM Frameworks**: Langchain, Llama Index, Crew.ai, Agno
+- **Output Protocols**: Pydantic, JSON, CSV, Markdown, Excel
+- **Stealth**: Built-in Canvas/WebGL noise, Hardware spoofing, UA rotation.
 
 ## 🚀 Quick install
 
@@ -35,7 +47,7 @@ The reference page for Chuscraper is available on the official page of PyPI: [py
 ```bash
 pip install chuscraper
 
-# IMPORTANT (for AI capabilities)
+# FOR AI CAPABILITIES
 pip install chuscraper[ai]
 ```
 
@@ -43,9 +55,10 @@ pip install chuscraper[ai]
 
 
 ## 💻 Usage
-There are multiple standard scraping methods that can be used to extract information from a website.
+There are multiple standard scraping methods that can be used to extract information from a website (or local file).
 
-The most powerful one is the Agentic Pilot, which navigates and extracts information autonomously.
+The most common one is the `ai_pilot`, which autonomously navigates and extracts information from a page given a user goal.
+
 
 ```python
 import asyncio
@@ -56,12 +69,15 @@ async def main():
     browser = await start(headless=False)
     page = await browser.get("https://www.makemytrip.com/")
 
-    # 1. Autonomous Pilot: Search for hotels
-    await page.ai_pilot("Search for hotels in Goa for next week")
-
-    # 2. Semantic Extraction
-    result = await page.ai_extract("Extract hotel names and prices")
-    print(result)
+    # Define the goal
+    print("AI is starting to search...")
+    await page.ai_pilot("Search for hotels in Goa for next weekend")
+    
+    # Extract structured data
+    result = await page.ai_extract("Extract first 3 hotels with prices")
+    
+    import json
+    print(json.dumps(result, indent=4))
 
     await browser.stop()
 
@@ -73,14 +89,35 @@ if __name__ == "__main__":
 > For OpenAI and other models you just need to pass the provider!
 > ```python
 > from chuscraper.ai.providers import OpenAIProvider
-> provider = OpenAIProvider(api_key="YOUR_KEY")
+> provider = OpenAIProvider(api_key="YOUR_OPENAI_API_KEY")
 > await page.ai_extract("Extract data", provider=provider)
 > ```
 
+
+The output will be a structured dictionary like the following:
+
+```python
+{
+    "hotels": [
+        {
+            "name": "Taj Exotica Resort & Spa",
+            "price": "₹ 25,000",
+            "rating": "4.8"
+        },
+        {
+            "name": "Cygnett Inn",
+            "price": "₹ 4,500",
+            "rating": "4.2"
+        }
+    ]
+}
+```
+
 ## 📖 Documentation
-The documentation for Chuscraper can be found in the [docs/](docs/) folder of this repository.
+The documentation for Chuscraper can be found in the [docs/](docs/) folder.
 
 ## 🤝 Contributing
+
 Feel free to contribute and join our community to discuss improvements and give us suggestions!
 
 Please see the [contributing guidelines](CONTRIBUTING.md).
@@ -96,7 +133,7 @@ Please see the [contributing guidelines](CONTRIBUTING.md).
 | ai_ask                  | Context-aware Q&A that answers questions based on the current page's content.                                   |
 
 ## 🎓 Citations
-If you have used our library for research purposes please quote us:
+If you have used our library for research purposes please quote us with the following reference:
 ```text
   @misc{chuscraper,
     author = {Toufiq Qureshi},
