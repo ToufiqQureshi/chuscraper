@@ -131,6 +131,18 @@ We don't just claim to be stealthy; we prove it. Below are the results from top 
 ![Fingerprint.com Audit](docs/assets/proof/fingerprint_proof.png)
 **Fingerprint.com:** Commercial-grade bot detection bypassed.
 
+### 🌍 Real-World Protection Bypass
+We tested `chuscraper` against live websites protected by major security providers:
+
+![Cloudflare Turnstile](docs/assets/proof/cloudflare_turnstile_proof.png)
+**Cloudflare Turnstile:** Challenge solved automatically.
+
+![DataDome Protection](docs/assets/proof/datadome_research_proof.png)
+**DataDome:** Research page accessed without blocking.
+
+![Akamai Bot Manager](docs/assets/proof/akamai_nike_proof.png)
+**Akamai (Nike):** Product page loaded successfully (Bot Manager bypassed).
+
 ---
 
 ## 📖 Documentation
