@@ -27,7 +27,7 @@
 Just say which information you want to extract and the library will do it for you!
 
 <p align="center">
-  <img src="docs/assets/logo.png" alt="Chuscraper Hero" style="width: 100%;">
+  <img src="docs/assets/logo_clean.svg" alt="Chuscraper Logo" width="300">
 </p>
 
 
