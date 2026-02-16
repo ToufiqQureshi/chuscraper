@@ -11,7 +11,7 @@ import typing
 import urllib.parse
 import warnings
 import webbrowser
-from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, cast, Type, TypeVar
 
 from .intercept import BaseFetchInterception
 from .. import cdp
@@ -22,7 +22,9 @@ from .expect import DownloadExpectation, RequestExpectation, ResponseExpectation
 from ..cdp.fetch import RequestStage
 from ..cdp.network import ResourceType
 from ..cdp.runtime import DeepSerializedValue
-
+from ..extractors.markdown import html_to_markdown
+from ..extractors.structured import StructuredExtractor
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from .browser import Browser
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T", bound=BaseModel)
 
 class Tab(Connection):
     """
@@ -203,7 +206,7 @@ class Tab(Connection):
         :param best_match:  when True (default), it will return the element which has the most
                  comparable string length. this could help tremendously, when for example
                  you search for "login", you'd probably want the login button element,
-                 and not thousands of scripts,meta,headings containing a string of "login".
+                 and not thousands of scripts,meta,headings which happens to contain a string of "login".
                  When False, it will return naively just the first match (but is way faster).
         :param return_enclosing_element:
                  since we deal with nodes instead of elements, the find function most often returns
@@ -1751,6 +1754,58 @@ class Tab(Connection):
                 platform=platform,
             )
         )
+
+    async def markdown(self) -> str:
+        """
+        Converts the current page content to clean, LLM-ready Markdown.
+        """
+        content = await self.get_content()
+        return html_to_markdown(content)
+
+    async def extract(self, schema: Type[T]) -> T:
+        """
+        Extracts structured data from the page matching the given Pydantic schema.
+
+        Args:
+            schema: Pydantic model class defining the structure to extract.
+
+        Returns:
+            An instance of the schema populated with data.
+        """
+        # Get simplified markdown for extraction to save tokens and improve accuracy
+        text = await self.markdown()
+        extractor = StructuredExtractor()
+        return await extractor.extract(text, schema)
+
+    async def crawl(self, depth: int = 1, max_pages: int = 5) -> List[str]:
+        """
+        Simple crawler that visits links on the current page.
+
+        Args:
+            depth: How deep to crawl (currently only supports 1 - shallow crawl of links on current page)
+            max_pages: Limit number of pages to visit
+
+        Returns:
+            List of visited URLs
+        """
+        # TODO: Implement full recursive crawler with queue
+        # For now, implemented a "map" feature essentially
+        links = await self.get_all_urls()
+
+        # Filter external links?
+        current_host = urllib.parse.urlparse(self.url).hostname
+
+        visited = []
+        count = 0
+        for link in links:
+            if count >= max_pages:
+                break
+            if urllib.parse.urlparse(link).hostname == current_host:
+                visited.append(link)
+                # In a real crawler, we would navigate here and extract
+                count += 1
+
+        return visited
 
     async def __call__(
         self,
