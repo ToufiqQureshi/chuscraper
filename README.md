@@ -1,83 +1,86 @@
-🚀 **Looking for an even faster and simpler way to scrape at scale (only 5 lines of code)?** Check out our enhanced version at [**Chuscraper.com**](https://github.com/ToufiqQureshi/chuscraper)! 🚀
+<p align="center">
+  <img src="https://i.ibb.co/HLyG7BBK/Chat-GPT-Image-Feb-16-2026-11-13-14-AM.png" alt="Chuscraper Logo" width="180" />
+</p>
+
+<h1 align="center">🕷️ Chuscraper</h1>
+<p align="center">
+  <strong>LLM + CDP powered undetectable web scraping & automation framework</strong><br/>
+  You Only Scrape Once — data extraction made smarter, faster, and stealthier.
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/chuscraper/"><img src="https://static.pepy.tech/personalized-badge/chuscraper?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads"/></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge"/></a>
+  <a href="https://github.com/ToufiqQureshi/chuscraper"><img src="https://img.shields.io/badge/GitHub-Trending-blue?style=for-the-badge&logo=github"/></a>
+</p>
 
 ---
 
-# 🕷️ Chuscraper: You Only Scrape Once
+## 🚀 What is Chuscraper?
+Chuscraper is a Python web scraping & automation library that uses **CDP (Chrome DevTools Protocol)** and **LLMs** to extract structured data, interact with pages, and automate workflows — all while staying *stealthy and undetected*.
 
-[English](README.md) | [中文](docs/chinese.md) | [日本語](docs/japanese.md)
-| [한국어](docs/korean.md)
-| [Русский](docs/russian.md) | [Türkçe](docs/turkish.md)
-| [Deutsch](docs/german.md)
-| [Español](docs/spanish.md)
-| [français](docs/french.md)
-| [Português](docs/portuguese.md)
+With AI-powered extraction, you tell it *what* to extract — it figures out *how*.
 
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/chuscraper?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/chuscraper)
-[![linting: pylint](https://img.shields.io/badge/linting-pylint-yellowgreen?style=for-the-badge)](https://github.com/ToufiqQureshi/chuscraper)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+---
 
-[![Chuscraper Banner](docs/assets/logo_pro.svg)](https://github.com/ToufiqQureshi/chuscraper)
+## 🌟 Features
 
-<p align="center">
-<a href="https://github.com/ToufiqQureshi/chuscraper" target="_blank"><img src="https://img.shields.io/badge/GitHub-Trending-blue?style=for-the-badge&logo=github" alt="Chuscraper | Trending" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</p>
+### 🕵️‍♂️ Stealth & Anti-Detection
+- Hides `navigator.webdriver`, user agent rotation
+- Canvas/WebGL noise + hardware spoofing
+- Timezone & geolocation spoofing
 
-[Chuscraper](https://github.com/ToufiqQureshi/chuscraper) is a *web scraping* python library that uses LLM and direct CDP logic to create scraping pipelines for websites and local documents (XML, HTML, JSON, Markdown, etc.).
+### 🤖 AI-Driven Data Extraction
+- **Semantic extraction** using LLMs
+- Converts HTML into structured JSON/Pydantic
 
-Just say which information you want to extract and the library will do it for you!
+### 🧠 Autonomous Navigation
+- Intelligent pilot (`ai_pilot`) that clicks/types until goal achieved
 
-<p align="center">
-  <img src="docs/assets/official_logo.png" alt="Chuscraper Logo" width="400">
-</p>
+### ⚡ Async + Fast
+Built on async CDP, low overhead, no heavy browser bundles.
 
+### 🔄 Flexible Outputs
+Supports JSON, CSV, Markdown, Excel, Pydantic, and more.
 
-## 🚀 Integrations
-Chuscraper offers seamless integration with popular frameworks and tools to enhance your scraping capabilities. Whether you're building with Python, using LLM frameworks, or working with AI agents, we've got you covered with our comprehensive integration options.
+### 🌐 Integrations
+- LLM Providers: OpenAI, Gemini, Anthropic, Ollama
+- Frameworks: LangChain, LlamaIndex, Agno, Crew.ai
 
-**Integrations**:
-- **Providers**: OpenAI, Gemini (Native), Anthropic, Ollama
-- **LLM Frameworks**: Langchain, Llama Index, Crew.ai, Agno
-- **Output Protocols**: Pydantic, JSON, CSV, Markdown, Excel
-- **Stealth**: Built-in Canvas/WebGL noise, Hardware spoofing, UA rotation.
+---
 
-## 🚀 Quick install
-
-The reference page for Chuscraper is available on the official page of PyPI: [pypi](https://pypi.org/project/chuscraper/).
+## 📦 Installation
 
 ```bash
 pip install chuscraper
 
-# FOR AI CAPABILITIES
+# For AI Capabilities
 pip install chuscraper[ai]
 ```
 
-**Note**: it is recommended to install the library in a virtual environment to avoid conflicts with other libraries 🐱
+> [!TIP]
+> Use within a virtual environment to avoid conflicts.
 
+---
 
-## 💻 Usage
-There are multiple standard scraping methods that can be used to extract information from a website (or local file).
-
-The most common one is the `ai_pilot`, which autonomously navigates and extracts information from a page given a user goal.
-
+## 💻 Quick Start (Async)
 
 ```python
 import asyncio
 from chuscraper import start
 
 async def main():
-    # Start the stealth browser
     browser = await start(headless=False)
     page = await browser.get("https://www.makemytrip.com/")
 
-    # Define the goal
-    print("AI is starting to search...")
-    await page.ai_pilot("Search for hotels in Goa for next weekend")
-    
+    # Tell the AI what to extract
+    print("AI is navigating...")
+    await page.ai_pilot("Search hotels in Goa for next weekend")
+
     # Extract structured data
-    result = await page.ai_extract("Extract first 3 hotels with prices")
-    
+    result = await page.ai_extract("Get the first 3 hotels with prices")
     import json
-    print(json.dumps(result, indent=4))
+    print(json.dumps(result, indent=2))
 
     await browser.stop()
 
@@ -85,66 +88,42 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-> [!NOTE]
-> For OpenAI and other models you just need to pass the provider!
-> ```python
-> from chuscraper.ai.providers import OpenAIProvider
-> provider = OpenAIProvider(api_key="YOUR_OPENAI_API_KEY")
-> await page.ai_extract("Extract data", provider=provider)
-> ```
+---
 
-
-The output will be a structured dictionary like the following:
+## 🤖 AI Usage with Providers
+Example using **OpenAIProvider**:
 
 ```python
-{
-    "hotels": [
-        {
-            "name": "Taj Exotica Resort & Spa",
-            "price": "₹ 25,000",
-            "rating": "4.8"
-        },
-        {
-            "name": "Cygnett Inn",
-            "price": "₹ 4,500",
-            "rating": "4.2"
-        }
-    ]
-}
+from chuscraper.ai.providers import OpenAIProvider
+
+provider = OpenAIProvider(api_key="YOUR_OPENAI_API_KEY")
+await page.ai_extract("Extract prices and listings", provider=provider)
 ```
+
+---
 
 ## 📖 Documentation
-The documentation for Chuscraper can be found in the [docs/](docs/) folder.
+Full docs available in the `docs/` folder:
 
-## 🤝 Contributing
+- [English](README.md)
+- [Chinese](docs/chinese.md)
+- [Japanese](docs/japanese.md)
+- [Korean](docs/korean.md)
+- [Russian](docs/russian.md)
+- [Turkish](docs/turkish.md)
+- [German](docs/german.md)
+- [Spanish](docs/spanish.md)
+- [French](docs/french.md)
+- [Portuguese](docs/portuguese.md)
 
-Feel free to contribute and join our community to discuss improvements and give us suggestions!
+---
 
-Please see the [contributing guidelines](CONTRIBUTING.md).
+## 🛠️ Contributing
+Want to contribute? Open an issue or send a pull request — all levels welcome! Please follow the `CONTRIBUTING.md` guidelines.
 
-## 🔥 AI Methods
-
-| Method Name           | Description                                                                                                      |
-|-------------------------|------------------------------------------------------------------------------------------------------------------|
-| ai_pilot                | Single-goal autonomous navigator that handles interaction (clicks, types) to reach a target.                    |
-| ai_extract              | Semantic data extractor that converts HTML content into structured JSON/Pydantic models.                        |
-| ai_visual_extract       | Multi-modal Vision scraper that extracts data directly from the rendered page screenshot.                       |
-| ai_learn_selector       | Self-healing tool that generates robust CSS/Xpath selectors for long-term automation.                           |
-| ai_ask                  | Context-aware Q&A that answers questions based on the current page's content.                                   |
-
-## 🎓 Citations
-If you have used our library for research purposes please quote us with the following reference:
-```text
-  @misc{chuscraper,
-    author = {Toufiq Qureshi},
-    title = {Chuscraper},
-    year = {2026},
-    url = {https://github.com/ToufiqQureshi/chuscraper},
-    note = {An undetectable & agentic python library for scraping leveraging CDP and LLMs}
-  }
-```
+---
 
 ## 📜 License
-Chuscraper is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
+Chuscraper is licensed under the MIT License.
 
 Made with ❤️ by [Toufiq Qureshi]
