@@ -160,6 +160,14 @@ Full technical guides are available in the `docs/` folder:
 
 *Translations (Chinese, Japanese, etc.) coming soon.*
 
+## 💖 Support & Sponsorship
+
+`chuscraper` is an open-source project maintained by [Toufiq Qureshi]. If the library has helped you or your business, please consider supporting its development:
+
+- **GitHub Sponsors**: [Sponsor me on GitHub](https://github.com/sponsors/ToufiqQureshi)
+- **Corporate Sponsorship**: If you are a **Proxy Provider** or **Data Company**, we offer featured placement in our documentation. Contact us for partnership opportunities.
+- **Custom Scraping Solutions**: Need a private, high-performance scraper? We offer professional consulting.
+
 ---
 
 ## 🛠️ Contributing
