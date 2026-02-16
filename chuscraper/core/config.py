@@ -98,10 +98,9 @@ class Config:
         self.headless = headless
         self.sandbox = sandbox
         
-        # PATCHRIGHT BEST PRACTICE: Do NOT inject custom User-Agent.
+        # BEST PRACTICE: Do NOT inject custom User-Agent.
         # Let Chrome use its REAL, NATIVE User-Agent. Custom UAs create
         # fingerprint mismatches (platform, version, etc) that anti-bots detect.
-        # Ref: https://github.com/Kaliiiiiiiiii-Vinyzu/patchright-python
         self.user_agent = user_agent  # Only set if user explicitly provides one
         self.host = host
         self.port = port
@@ -141,8 +140,7 @@ class Config:
         # other keyword args will be accessible by attribute
         self.__dict__.update(kwargs)
         super().__init__()
-        # PATCHRIGHT-LEVEL: Hardened command flags
-        # Ref: https://github.com/Kaliiiiiiiiii-Vinyzu/patchright
+        # STEALTH-LEVEL: Hardened command flags
         #
         # REMOVED (detectable as stealth driver):
         #   --enable-automation (exposes navigator.webdriver)
