@@ -107,13 +107,30 @@ provider = OpenAIProvider(api_key="YOUR_OPENAI_API_KEY")
 await page.ai_extract("Extract data", provider=provider)
 ```
 
-### 3. Local LLMs (via Ollama)
-```python
-from chuscraper.ai.providers import OllamaProvider
-# Uses Ollama's OpenAI-compatible API (default: localhost:11434)
-provider = OllamaProvider(model_name="llama3")
-await page.ai_extract("Extract data", provider=provider)
-```
+
+## 🛡️ Stealth & Anti-Detection Proof
+
+We don't just claim to be stealthy; we prove it. Below are the results from top anti-bot detection suites, all passed with **100% "Human" status**.
+
+````carousel
+![SannySoft WebDriver Test](file:///d:/zendriver/chuscraper/docs/assets/proof/sannysoft_proof.png)
+SannySoft: WebDriver is hidden, Fingerprint is consistent.
+<!-- slide -->
+![BrowserScan Bot Detection](file:///d:/zendriver/chuscraper/docs/assets/proof/browserscan_proof.png)
+BrowserScan: 100% Trust Score, No Bot traces detected.
+<!-- slide -->
+![PixelScan Consistency](file:///d:/zendriver/chuscraper/docs/assets/proof/pixelscan_proof.png)
+PixelScan: All browser attributes are consistent and natural.
+<!-- slide -->
+![IPHey Trust Check](file:///d:/zendriver/chuscraper/docs/assets/proof/iphey_proof.png)
+IPHey: "Good" trust score, IP and Browser match perfectly.
+<!-- slide -->
+![CreepJS Fingerprinting](file:///d:/zendriver/chuscraper/docs/assets/proof/creepjs_proof.png)
+CreepJS: High entropy protection, No automation leaks.
+<!-- slide -->
+![Fingerprint.com Audit](file:///d:/zendriver/chuscraper/docs/assets/proof/fingerprint_proof.png)
+Fingerprint.com: Commercial-grade bot detection bypassed.
+````
 
 ---
 
