@@ -346,59 +346,50 @@ class Browser:
         :return: Page
         :raises asyncio.TimeoutError:
         """
-        if not self.connection:
-            raise RuntimeError("Browser not yet started. use await browser.start()")
+        if new_window and not new_tab:
+            new_tab = True
 
-        future = asyncio.get_running_loop().create_future()
-        event_type = cdp.target.TargetInfoChanged
-
-        async def get_handler(event: cdp.target.TargetInfoChanged) -> None:
-            if future.done():
-                return
-
-            # ignore TargetInfoChanged event from browser startup
-            if event.target_info.url != "about:blank" or (
-                url == "about:blank" and event.target_info.url == "about:blank"
-            ):
-                future.set_result(event)
-
-        self.connection.add_handler(event_type, get_handler)
-
-        if new_tab or new_window:
-            # create new target using the browser session
-            target_id = await self.connection.send(
+        if not self.tabs or new_tab:
+            target = await self.send(
                 cdp.target.create_target(
-                    url, new_window=new_window, enable_begin_frame_control=True
+                    "about:blank", new_window=new_window, background=False
                 )
             )
-            # get the connection matching the new target_id from our inventory
-            # Retry loop to handle race condition where event loop hasn't updated self.targets yet
-            connection: tab.Tab = None
-            for _ in range(20):
-                try:
-                    connection = next(
-                        filter(
-                            lambda item: item.type_ == "page" and item.target_id == target_id,
-                            self.targets,
-                        )
-                    )
+
+            # we wait for the TargetCreated event to be processed
+            # and our Tab object to be instantiated
+            loop = asyncio.get_running_loop()
+            start_time = loop.time()
+            while True:
+                tab_obj = next(
+                    (t for t in self.tabs if t.target_id == target),
+                    None,
+                )
+                if tab_obj:
                     break
-                except StopIteration:
-                    await asyncio.sleep(0.1)
-            else:
-                 raise RuntimeError(f"New target {target_id} not found/registered")
-            connection.browser = self
+                await asyncio.sleep(0.01)
+                if loop.time() - start_time > self.config.browser_connection_timeout:
+                    raise asyncio.TimeoutError("Timeout waiting for new tab")
+
+            # apply stealth and timezone
+            await self._apply_stealth_and_timezone(tab_obj)
+
+            if url != "about:blank":
+                await tab_obj.get(url)
+            return tab_obj
+
         else:
-            # first tab from browser.tabs
-            connection = next(filter(lambda item: item.type_ == "page", self.targets))  # type: ignore
-            # use the tab to navigate to new url
-            await connection.send(cdp.page.navigate(url))
-            connection.browser = self
+            p = self.main_tab
+            await p.get(url)
+            return p
 
-        await asyncio.wait_for(future, 10)
-        self.connection.remove_handlers(event_type, get_handler)
+    async def goto(self, url: str) -> tab.Tab:
+        """Shortcut for browser.main_tab.get(url)."""
+        return await self.main_tab.get(url)
 
-        return connection
+    async def scrape(self, selector: str, timeout: Union[int, float] = 10):
+        """Shortcut for browser.main_tab.select(selector)."""
+        return await self.main_tab.select(selector, timeout=timeout)
 
     async def start(self) -> Browser:
         """launches the actual browser"""

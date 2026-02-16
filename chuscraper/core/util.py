@@ -41,6 +41,9 @@ async def start(
     port: Optional[int] = None,
     expert: Optional[bool] = None,
     user_agent: Optional[str] = None,
+    proxy: Optional[str] = None,
+    stealth: Optional[bool] = False,
+    timezone: Optional[str] = None,
     **kwargs: Any,
 ) -> Browser:
     """
@@ -89,6 +92,9 @@ async def start(
             port=port,
             expert=expert,
             user_agent=user_agent,
+            proxy=proxy,
+            stealth=stealth,
+            timezone=timezone,
             **kwargs,
         )
     from .browser import Browser

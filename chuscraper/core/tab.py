@@ -434,8 +434,27 @@ class Tab(Connection):
             return await self.browser.get(url, new_tab, new_window)
         else:
             await self.send(cdp.page.navigate(url))
-            await self.wait()
+            try:
+                # Wait for idle, but timeout after 15s to prevent hangs on noisy sites
+                await self.wait(15)
+            except:
+                pass
             return self
+
+    async def goto(
+        self, url: str = "about:blank", new_tab: bool = False, new_window: bool = False
+    ) -> Tab:
+        """Alias for get(). Matches Playwright/Puppeteer naming."""
+        return await self.get(url, new_tab, new_tab)
+
+    async def title(self) -> str:
+        """Returns the current page title."""
+        return await self.evaluate("document.title")
+
+    async def select_text(self, selector: str, timeout: Union[int, float] = 10) -> str | None:
+        """One-liner to find an element and return its inner text."""
+        el = await self.select(selector, timeout=timeout)
+        return el.text if el else None
 
     async def query_selector_all(
         self,
