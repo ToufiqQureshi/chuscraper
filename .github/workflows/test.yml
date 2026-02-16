@@ -28,12 +28,12 @@ jobs:
       - name: Set up Python
         run: uv python install
       - name: Install dependencies
-        run: uv sync --all-extras --dev
+        run: uv sync --all-extras --all-groups
       - name: Run tests
         env:
-          ZENDRIVER_TEST_BROWSERS: "headless"
-          ZENDRIVER_TEST_NO_SANDBOX: "true"
-        run: bash ./scripts/test.sh
+          CHUSCRAPER_TEST_BROWSERS: "headless"
+          CHUSCRAPER_TEST_NO_SANDBOX: "true"
+        run: bash ./scripts/test.sh -n auto
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         env:

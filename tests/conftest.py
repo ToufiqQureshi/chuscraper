@@ -36,9 +36,9 @@ NEXT_TEST_EVENT = Event()
 
 
 class TestConfig:
-    BROWSER_MODE = BrowserMode(os.getenv("chuscraper_TEST_BROWSERS", "all"))
-    PAUSE_AFTER_TEST = os.getenv("chuscraper_PAUSE_AFTER_TEST", "false") == "true"
-    SANDBOX = os.getenv("chuscraper_TEST_SANDBOX", "false") == "true"
+    BROWSER_MODE = BrowserMode(os.getenv("CHUSCRAPER_TEST_BROWSERS", "headless"))
+    PAUSE_AFTER_TEST = os.getenv("CHUSCRAPER_PAUSE_AFTER_TEST", "false") == "true"
+    SANDBOX = os.getenv("CHUSCRAPER_TEST_NO_SANDBOX", "true") == "true"
     USE_WAYLAND = os.getenv("WAYLAND_DISPLAY") is not None
 
 
@@ -119,10 +119,10 @@ async def browser(
 def handle_next_test(signum: int, frame: FrameType | None) -> None:
     if not TestConfig.PAUSE_AFTER_TEST:
         logger.warning(
-            "Next test signal received, but chuscraper_PAUSE_AFTER_TEST is not set."
+            "Next test signal received, but CHUSCRAPER_PAUSE_AFTER_TEST is not set."
         )
         logger.warning(
-            "To enable pausing after each test, set chuscraper_PAUSE_AFTER_TEST=true"
+            "To enable pausing after each test, set CHUSCRAPER_PAUSE_AFTER_TEST=true"
         )
         return
 
