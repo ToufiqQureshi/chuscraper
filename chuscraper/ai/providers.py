@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 import os
-from typing import Any, Dict, List, Optional, Type
+import asyncio
 import logging
+from typing import Any, Dict, List, Optional, Type
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,10 @@ class GeminiProvider(AIProvider):
             self.genai = genai
             self.types = types
         except ImportError:
-            raise ImportError("Please install 'google-genai' to use modern Gemini features.")
+            raise ImportError(
+                "Gemini dependencies not found. Please install them using:\n"
+                "pip install google-genai"
+            )
         
         # Support multiple keys for rotation: GEMINI_API_KEYS="key1,key2,key3"
         keys_env = os.environ.get("GEMINI_API_KEYS")
@@ -34,7 +38,10 @@ class GeminiProvider(AIProvider):
              # Fallback to single key
              single_key = api_key or os.environ.get("GEMINI_API_KEY")
              if not single_key:
-                  raise ValueError("GEMINI_API_KEY not found.")
+                  raise ValueError(
+                      "No API Key found. Please set GEMINI_API_KEY or GEMINI_API_KEYS environment variable, "
+                      "or pass api_key to the constructor."
+                  )
              self.api_keys = [single_key]
 
         self.current_key_index = 0
@@ -69,51 +76,59 @@ class GeminiProvider(AIProvider):
                 system_instruction=system_instruction
             )
 
-        import asyncio
         from google.genai import errors
 
         max_retries = 3
         
-        # Outer loop for key rotation
-        for key_attempt in range(len(self.api_keys) * 2): # Try all keys twice
-            for attempt in range(max_retries):
-                try:
-                    response = await asyncio.to_thread(
-                        self.client.models.generate_content,
-                        model=self.model_name,
-                        contents=prompt,
-                        config=config
-                    )
-                    return response.text
-                except errors.ClientError as e:
-                    error_str = str(e)
-                    # 429 = Resource Exhausted
-                    if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                         logger.warning(f"⚠️ Gemini Rate Limit (429) on Key #{self.current_key_index+1}")
-                         
-                         # Try rotating key first
-                         if self._rotate_key():
-                             break # Break inner retry loop to try new key immediately
-                         
-                         # If no other keys, backoff
-                         if attempt < max_retries - 1:
-                            wait_time = (2 ** (attempt + 2)) 
-                            logger.info(f"⏳ Retrying in {wait_time}s...")
-                            await asyncio.sleep(wait_time)
-                            continue
-                    
-                    # 404 = Model Not Found (maybe key doesn't have access to 2.0)
-                    if "404" in error_str or "NOT_FOUND" in error_str:
-                         logger.warning(f"❌ Model {self.model_name} not found with current key.")
-                         # Fallback to stable model?
-                         if self.model_name != "gemini-1.5-flash":
-                             logger.info("⬇️ Downgrading to 'gemini-1.5-flash'...")
-                             self.model_name = "gemini-1.5-flash"
-                             continue
+        # Try all keys if necessary (Round Robin + Retry)
+        total_attempts = len(self.api_keys) * 2
 
-                    raise e
+        for attempt in range(total_attempts):
+            try:
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=prompt,
+                    config=config
+                )
+                return response.text
+
+            except errors.ClientError as e:
+                error_str = str(e)
+                is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+                is_model_error = "404" in error_str or "NOT_FOUND" in error_str
+
+                if is_rate_limit:
+                     logger.warning(f"⚠️ Gemini Rate Limit (429) on Key #{self.current_key_index+1}")
+                     # Rotate and retry immediately
+                     if self._rotate_key():
+                         continue
+
+                     # If we can't rotate (single key), wait with exponential backoff
+                     wait_time = (2 ** (attempt % 3 + 1))
+                     logger.info(f"⏳ Retrying in {wait_time}s...")
+                     await asyncio.sleep(wait_time)
+                     continue
+
+                if is_model_error:
+                     logger.warning(f"❌ Model {self.model_name} not found or not supported with Key #{self.current_key_index+1}.")
+                     # If using 2.0-flash, try downgrading to 1.5-flash which is more widely available
+                     if self.model_name == "gemini-2.0-flash":
+                         logger.info("⬇️ Downgrading to 'gemini-1.5-flash' for stability...")
+                         self.model_name = "gemini-1.5-flash"
+                         continue
+
+                # For other client errors, just raise unless we can rotate
+                if self._rotate_key():
+                     continue
+                raise e
+            except Exception as e:
+                 logger.error(f"Unexpected error in Gemini generation: {e}")
+                 if self._rotate_key():
+                     continue
+                 raise e
         
-        raise RuntimeError("All API keys and retries exhausted. Please check your quota.")
+        raise RuntimeError("All Gemini API keys exhausted. Please check your quota or add more keys.")
 
     async def generate_visual_response(
         self, 
@@ -129,11 +144,17 @@ class GeminiProvider(AIProvider):
             prompt
         ]
         
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=content
-        )
-        return response.text
+        # Simple retry logic for vision too
+        try:
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.model_name,
+                contents=content
+            )
+            return response.text
+        except Exception as e:
+            logger.error(f"Vision generation failed: {e}")
+            raise
 
 class OpenAIProvider(AIProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gpt-4o"):
@@ -141,7 +162,10 @@ class OpenAIProvider(AIProvider):
             from openai import OpenAI
             self.OpenAI = OpenAI
         except ImportError:
-            raise ImportError("Please install 'openai' to use OpenAI features.")
+            raise ImportError(
+                "OpenAI dependencies not found. Please install them using:\n"
+                "pip install openai"
+            )
 
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
@@ -163,12 +187,17 @@ class OpenAIProvider(AIProvider):
 
         response_format = {"type": "json_object"} if json_mode else None
 
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            response_format=response_format
-        )
-        return response.choices[0].message.content or ""
+        try:
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
+                model=self.model_name,
+                messages=messages,
+                response_format=response_format
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.error(f"OpenAI generation failed: {e}")
+            raise
 
 class OllamaProvider(AIProvider):
     def __init__(self, base_url: str = "http://localhost:11434/v1", model_name: str = "llama3"):
@@ -205,7 +234,8 @@ class OllamaProvider(AIProvider):
         response_format = {"type": "json_object"} if json_mode else None
 
         try:
-            response = self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=self.model_name,
                 messages=messages,
                 response_format=response_format
