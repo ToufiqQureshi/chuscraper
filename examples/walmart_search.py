@@ -28,8 +28,9 @@ async def main():
             query = "Sony PS5"
             
             if os.environ.get("GEMINI_API_KEY"):
+                from chuscraper import chus_ai
                 print(f"🤖 AI Pilot: Searching for '{query}'...")
-                await page.ai_pilot(f"Type '{query}' in search bar and press Enter")
+                await chus_ai.pilot(page, f"Type '{query}' in search bar and press Enter")
             else:
                 print(f"⚡ No API Key. Using Standard Type & Enter for '{query}'...")
                 # Walmart search input ID can vary, but let's try common ones
@@ -42,8 +43,10 @@ async def main():
             print("👀 Extracting product info...")
             
             if os.environ.get("GEMINI_API_KEY"):
+                from chuscraper import chus_ai
                 # Walmart HTML is heavy, AI extraction is perfect for this
-                products = await page.ai_extract(
+                products = await chus_ai.extract(
+                    page,
                     "Extract top 3 products: title, price (current), and shipping info (e.g. '2-day shipping')."
                 )
             else:

@@ -36,8 +36,9 @@ async def main():
                 
             # 3. Search (Hybrid)
             if os.environ.get("GEMINI_API_KEY"):
+                from chuscraper import chus_ai
                 print("🤖 AI Pilot: Searching for flights from Delhi to Mumbai...")
-                await page.ai_pilot("Select 'FROM' as New Delhi and 'TO' as Mumbai. Then click Search.")
+                await chus_ai.pilot(page, "Select 'FROM' as New Delhi and 'TO' as Mumbai. Then click Search.")
             else:
                  print("⚡ No API Key. Using Direct URL Navigation...")
                  # MMT complex forms are hard to script manually without brittle selectors.
@@ -53,7 +54,9 @@ async def main():
             await page.wait_for_selector(".listingCard", timeout=20)
             
             if os.environ.get("GEMINI_API_KEY"):
-                results = await page.ai_extract(
+                from chuscraper import chus_ai
+                results = await chus_ai.extract(
+                    page,
                     "Extract first 3 flights with: airline name, departure time, price, and duration."
                 )
             else:

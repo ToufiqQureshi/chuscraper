@@ -30,7 +30,8 @@ async def main():
             # 3. Handle Consent Popup (Hybrid)
             try:
                 if os.environ.get("GEMINI_API_KEY"):
-                    await page.ai_pilot("If there is a cookie consent popup, click 'Reject all' or 'Accept all'.")
+                    from chuscraper import chus_ai
+                    await chus_ai.pilot(page, "If there is a cookie consent popup, click 'Reject all' or 'Accept all'.")
                 else:
                     # Standard logic for consent with my new 'click' alias
                     # Try English, German, French buttons commonly found in EU
@@ -48,7 +49,9 @@ async def main():
             print("👀 Extracting prices...")
             
             if os.environ.get("GEMINI_API_KEY"):
-                data = await page.ai_extract(
+                from chuscraper import chus_ai
+                data = await chus_ai.extract(
+                    page,
                     "Extract top 5 results with: product name, price, store name (merchant), and review score."
                 )
             else:

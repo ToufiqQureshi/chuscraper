@@ -42,8 +42,10 @@ async def main():
             print("👀 Extracting laptop deals...")
             
             if os.environ.get("GEMINI_API_KEY"):
+                from chuscraper import chus_ai
                 print("🤖 Using AI Extraction...")
-                data = await page.ai_extract(
+                data = await chus_ai.extract(
+                    page,
                     "Extract 5 laptops with: name, price, discount_percentage, and rating. Ignore accessories."
                 )
             else:
