@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="Chuscraper Logo" width="200">
+  <img src="docs/assets/logo.png" alt="Chuscraper Logo" width="250">
 </p>
 
 # 🚀 **Chuscraper: The Only Scraper You'll Ever Need** 🚀
