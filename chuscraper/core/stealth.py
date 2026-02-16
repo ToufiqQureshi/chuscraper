@@ -1,5 +1,5 @@
 """
-PATCHRIGHT-LEVEL Stealth Scripts for Chuscraper.
+advance-LEVEL Stealth Scripts for Chuscraper.
 
 These scripts patch known browser automation detection vectors:
 1. navigator.webdriver → undefined
@@ -13,14 +13,13 @@ These scripts patch known browser automation detection vectors:
 9. Notification permissions
 10. Source leak prevention (toString patches)
 
-Ref: https://github.com/AhmedShaheen0/patchright
 """
 
 
 def get_stealth_scripts() -> list[str]:
     """
     Returns JavaScript scripts to inject for bot detection evasion.
-    PATCHRIGHT-LEVEL: Covers all major detection vectors.
+    advance-LEVEL: Covers all major detection vectors.
     """
     scripts = []
 

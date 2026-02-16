@@ -164,7 +164,6 @@ class Config:
             "--password-store=basic",
             "--disable-infobars",
             "--disable-breakpad",
-            "--disable-blink-features=AutomationControlled",
             "--disable-backgrounding-occluded-windows",
             "--disable-renderer-backgrounding",
             "--disable-background-networking",
