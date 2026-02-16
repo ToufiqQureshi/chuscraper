@@ -1,19 +1,33 @@
-# Chuscraper v0.15.4 🚀
+# Chuscraper v0.18.0 🚀 - The "Easy Syntax" Update
 
-**Automated Release Update**
+This major update transforms **Chuscraper** into the most developer-friendly and intuitive web scraping framework in the Python ecosystem. We've removed boilerplate and added natural aliases for a "Zero Friction" experience.
 
-Fixed build issues and streamlined the deployment process.
+## ✨ What's New?
 
-## 🔥 Key Features
-- **Undetectable Stealth Mode**: Use `stealth=True` to bypass anti-bots (Akamai, Cloudflare).
-- **CDP Proxy Auth**: Built-in support for proxies with authentication (`user:pass`).
-- **Advanced Fingerprinting**:
-  - Canvas/WebGL noise
-  - Hardware spoofing (8 Cores, 8GB RAM)
-  - Smart User-Agent rotation
-- **Timezone Override**: Automatically syncs browser time with proxy location.
+### 🎮 Zero-Boilerplate Startup
+You can now start a stealthy browser session directly with keyword arguments. No need to manualy create `Config` objects.
+```python
+browser = await zd.start(headless=False, stealth=True, proxy="...")
+```
+
+### 🔗 Intuitive Aliases & One-Liners
+We've added aliases that match popular libraries like Playwright/Puppeteer and helpful one-liners for common tasks.
+- **`page.goto(url)`**: Alias for `get()`.
+- **`await page.title()`**: Quickly get the page title.
+- **`await page.select_text(selector)`**: Get element text in a single call.
+
+### ⚡ Browser-Level Shortcuts
+Control the browser directly for simple tasks.
+- **`await browser.goto(url)`**: Shortcuts the main tab navigation.
+- **`await browser.scrape(selector)`**: Quickly finds an element.
+
+### 🛡️ Hardened Navigation
+- **Anti-Hang Engine**: Internal `get()` logic now includes a 15s default timeout for idle waits, preventing scripts from getting stuck on "noisy" analytics-heavy sites.
 
 ## 📦 Installation
 ```bash
-pip install chuscraper
+pip install chuscraper --upgrade
 ```
+
+---
+*Made with ❤️ by Toufiq Qureshi*
