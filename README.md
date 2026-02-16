@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/chuscraper/"><img src="https://static.pepy.tech/personalized-badge/chuscraper?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads"/></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge"/></a>
+  <a href="https://opensource.org/licenses/AGPL-3.0"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=for-the-badge"/></a>
   <a href="https://github.com/ToufiqQureshi/chuscraper"><img src="https://img.shields.io/badge/GitHub-Trending-blue?style=for-the-badge&logo=github"/></a>
 </p>
 
@@ -176,6 +176,6 @@ Want to contribute? Open an issue or send a pull request — all levels welcome!
 ---
 
 ## 📜 License
-Chuscraper is licensed under the MIT License.
+Chuscraper is licensed under the **AGPL-3.0 License**. This ensures that any software using Chuscraper must also be open-source, protecting the community and your freedom.
 
 Made with ❤️ by [Toufiq Qureshi]
