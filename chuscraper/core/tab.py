@@ -29,6 +29,15 @@ from ..extractors.structured import StructuredExtractor
 from .humanizer import Humanizer
 from pydantic import BaseModel
 
+from .tabs.navigation import NavigationMixin
+from .tabs.dom import DomMixin
+from .tabs.actions import ActionsMixin
+from .tabs.network import NetworkMixin
+from .tabs.wait import WaitMixin
+from .tabs.storage import StorageMixin
+from .tabs.screenshot import ScreenshotMixin
+from .tabs.evaluation import EvaluationMixin
+
 if TYPE_CHECKING:
     from .browser import Browser
     from .element import Element
@@ -37,7 +46,17 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-class Tab(Connection):
+class Tab(
+    Connection, 
+    NavigationMixin, 
+    DomMixin, 
+    ActionsMixin, 
+    NetworkMixin, 
+    WaitMixin, 
+    StorageMixin, 
+    ScreenshotMixin, 
+    EvaluationMixin
+):
     """
     :ref:`tab` is the controlling mechanism/connection to a 'target',
     for most of us 'target' can be read as 'tab'. however it could also
@@ -152,7 +171,16 @@ class Tab(Connection):
         # Track last mouse position for human-like movements (default to top-left safe zone)
         self._last_mouse_x = 0
         self._last_mouse_y = 0
+        self._is_stopped = False
+        self._timeout = 30.0
 
+    @property
+    def timeout(self) -> float:
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value: float):
+        self._timeout = value
     @property
     def inspector_url(self) -> str:
         """
@@ -197,299 +225,8 @@ class Tab(Connection):
 
         webbrowser.open(self.inspector_url)
 
-    async def find(
-        self,
-        text: str,
-        best_match: bool = True,
-        return_enclosing_element: bool = True,
-        timeout: Union[int, float] = 10,
-    ) -> Element:
-        """
-        find single element by text
-        can also be used to wait for such element to appear.
-
-        :param text: text to search for. note: script contents are also considered text
-        :param best_match:  when True (default), it will return the element which has the most
-                 comparable string length. this could help tremendously, when for example
-                 you search for "login", you'd probably want the login button element,
-                 and not thousands of scripts,meta,headings which happens to contain a string of "login".
-                 When False, it will return naively just the first match (but is way faster).
-        :param return_enclosing_element:
-                 since we deal with nodes instead of elements, the find function most often returns
-                 so called text nodes, which is actually a element of plain text, which is
-                 the somehow imaginary "child" of a "span", "p", "script" or any other elements which have text between their opening
-                 and closing tags.
-                 most often when we search by text, we actually aim for the element containing the text instead of
-                 a lousy plain text node, so by default the containing element is returned.
-
-                 however, there are (why not) exceptions, for example elements that use the "placeholder=" property.
-                 this text is rendered, but is not a pure text node. in that case you can set this flag to False.
-                 since in this case we are probably interested in just that element, and not it's parent.
-
-
-                 # todo, automatically determine node type
-                 # ignore the return_enclosing_element flag if the found node is NOT a text node but a
-                 # regular element (one having a tag) in which case that is exactly what we need.
-        :param timeout: raise timeout exception when after this many seconds nothing is found.
-        """
-        loop = asyncio.get_running_loop()
-        start_time = loop.time()
-
-        text = text.strip()
-
-        while True:
-            item = await self.find_element_by_text(
-                text, best_match, return_enclosing_element
-            )
-            if item:
-                return item
-
-            if loop.time() - start_time > timeout:
-                raise asyncio.TimeoutError(
-                    f"Timeout ({timeout}s) waiting for element with text: '{text}'"
-                )
-
-            await self.sleep(0.5)
-
-    async def select(
-        self,
-        selector: str,
-        timeout: Union[int, float] = 10,
-    ) -> Element:
-        """
-        find single element by css selector.
-        can also be used to wait for such element to appear.
-
-        :param selector: css selector, eg a[href], button[class*=close], a > img[src]
-        :param timeout: raise timeout exception when after this many seconds nothing is found.
-        """
-        loop = asyncio.get_running_loop()
-        start_time = loop.time()
-
-        selector = selector.strip()
-
-        while True:
-            item = await self.query_selector(selector)
-            if isinstance(item, list):
-                if item:
-                    return item[0]
-            elif item:
-                return item
-
-            if loop.time() - start_time > timeout:
-                raise asyncio.TimeoutError(
-                    f"Timeout ({timeout}s) waiting for element with selector: '{selector}'"
-                )
-
-            await self.sleep(0.5)
-
-    async def wait_for_selector(self, selector: str, timeout: Union[int, float] = 10) -> Element:
-        """Alias for select() to match Playwright/Puppeteer naming."""
-        return await self.select(selector, timeout)
-
-    async def click(self, selector: str, timeout: Union[int, float] = 10) -> None:
-        """Finds an element by selector and clicks it."""
-        elem = await self.select(selector, timeout)
-        await elem.click()
-
-    async def type(self, selector: str, text: str, timeout: Union[int, float] = 10) -> None:
-        """Finds an element by selector and types text into it."""
-        elem = await self.select(selector, timeout)
-        await elem.send_keys(text)
-
-    async def fill(self, selector: str, text: str, timeout: Union[int, float] = 10) -> None:
-        """Alias for type(). Finds an element and sends text."""
-        await self.type(selector, text, timeout)
-
-    async def send_keys(self, text: str) -> None:
-        """
-        Sends keys to the page (currently focused element).
-        Useful for sending native keys like "Enter", "Tab", etc.
-        """
-        from .keys import KeyEvents, KeyPressEvent
-        
-        cluster_list = KeyEvents.from_text(text, KeyPressEvent.DOWN_AND_UP)
-        for cluster in cluster_list:
-             await self.send(cdp.input_.dispatch_key_event(**cluster))
-
-    async def human_click(self, selector: str, timeout: Union[int, float] = 10) -> None:
-        """
-        Simulates a human-like mouse movement and click on an element.
-        Uses Bezier curves for movement and random delays.
-        """
-        elem = await self.select(selector, timeout)
-        # We need to get the element position to aim for the center
-        pos = await elem.get_position(abs=False) # cdp coordinates are relative to viewport? 
-        # Actually dispatch_mouse_event expects viewport coordinates.
-        # Element.get_position(abs=False) returns viewport coordinates (if not scrolled out?)
-        # Let's double check get_position implementation. 
-        # It uses get_content_quads which returns viewport coordinates.
-        
-        if not pos:
-             # Fallback to standard click if position unknown
-            await elem.click()
-            return
-            
-        target_x, target_y = pos.center
-        
-        # Randomize target slightly (don't click exact center pixel)
-        target_x += list(util.circle(0, 0, radius=5, num=1))[0][0] # Simple random offset
-        target_y += list(util.circle(0, 0, radius=5, num=1))[0][1]
-        
-        # Generate path
-        path = Humanizer.bezier_curve(
-            self._last_mouse_x, self._last_mouse_y,
-            target_x, target_y,
-            steps=Humanizer.get_mouse_steps(self._last_mouse_x, self._last_mouse_y, target_x, target_y)
-        )
-        
-        # Move mouse along path
-        for x, y in path:
-            await self.send(cdp.input_.dispatch_mouse_event(
-                type_="mouseMoved", x=x, y=y
-            ))
-            # Very slight delay between movement steps? 
-            # Browser handles events fast, but let's add micro-sleeps for realism if needed.
-            # actually pure CDP flood might be too fast.
-            # await asyncio.sleep(random.uniform(0.001, 0.003)) 
-            
-        # Update last position
-        self._last_mouse_x = target_x
-        self._last_mouse_y = target_y
-        
-        # Click sequence
-        await self.send(cdp.input_.dispatch_mouse_event(
-            type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton("left"), click_count=1
-        ))
-        await asyncio.sleep(random.uniform(0.05, 0.15)) # Hold delay
-        await self.send(cdp.input_.dispatch_mouse_event(
-            type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton("left"), click_count=1
-        ))
-
-    async def human_type(self, selector: str, text: str, timeout: Union[int, float] = 10) -> None:
-        """
-        Simulates human-like typing with variable cadence and delays.
-        First clicks the element (human-like) to focus.
-        """
-        await self.human_click(selector, timeout)
-        
-        actions = Humanizer.typing_cadence(text)
-        from .keys import KeyEvents, KeyPressEvent
-        
-        for char, delay in actions:
-            # Generate key events for char
-            cluster_list = KeyEvents.from_text(char, KeyPressEvent.DOWN_AND_UP)
-            for cluster in cluster_list:
-                await self.send(cdp.input_.dispatch_key_event(**cluster))
-            
-            # Wait for the calculated delay
-            await asyncio.sleep(delay)
-
-    async def find_all(
-        self,
-        text: str,
-        timeout: Union[int, float] = 10,
-    ) -> List[Element]:
-        """
-        find multiple elements by text
-        can also be used to wait for such element to appear.
-
-        :param text: text to search for. note: script contents are also considered text
-        :param timeout: raise timeout exception when after this many seconds nothing is found.
-        """
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-
-        text = text.strip()
-
-        while True:
-            items = await self.find_elements_by_text(text)
-            if items:
-                return items
-
-            if loop.time() - now > timeout:
-                raise asyncio.TimeoutError(
-                    f"Timeout ({timeout}s) waiting for any element with text: '{text}'"
-                )
-
-            await self.sleep(0.5)
-
-    async def select_all(
-        self,
-        selector: str,
-        timeout: Union[int, float] = 10,
-        include_frames: bool = False,
-    ) -> List[Element]:
-        """
-        find multiple elements by css selector.
-        can also be used to wait for such element to appear.
-
-
-        :param selector: css selector, eg a[href], button[class*=close], a > img[src]
-        :param timeout: raise timeout exception when after this many seconds nothing is found.
-        :param include_frames: whether to include results in iframes.
-        """
-
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-        selector = selector.strip()
-
-        while True:
-            items = []
-            if include_frames:
-                frames = await self.query_selector_all("iframe")
-                for fr in frames:
-                    items.extend(await fr.query_selector_all(selector))
-
-            items.extend(await self.query_selector_all(selector))
-
-            if items:
-                return items
-
-            if loop.time() - now > timeout:
-                raise asyncio.TimeoutError(
-                    f"Timeout ({timeout}s) waiting for any element with selector: '{selector}'"
-                )
-
-            await self.sleep(0.5)
-
-    async def xpath(self, xpath: str, timeout: float = 2.5) -> List[Element]:  # noqa
-        """
-        find elements by xpath string.
-        if not immediately found, retries are attempted until :ref:`timeout` is reached (default 2.5 seconds).
-        in case nothing is found, it returns an empty list. It will not raise.
-        this timeout mechanism helps when relying on some element to appear before continuing your script.
-
-
-        .. code-block:: python
-
-             # find all the inline scripts (script elements without src attribute)
-             await tab.xpath('//script[not(@src)]')
-
-             # or here, more complex, but my personal favorite to case-insensitive text search
-
-             await tab.xpath('//text()[ contains( translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"),"test")]')
-
-
-        :param xpath:
-        :param timeout: 2.5
-        :return:List[Element] or []
-        :rtype:
-        """
-        items: List[Element] = []
-        loop = asyncio.get_running_loop()
-        start_time = loop.time()
-
-        while (loop.time() - start_time) < timeout and len(items) == 0:
-            try:
-                await self.send(cdp.dom.enable(), True)
-                items = await self.find_all(xpath, timeout=0)
-            except Exception:
-                items = []  # find_elements_by_text may raise exception
-
-            await self.disable_dom_agent()
-
-        return items
+    # --- Modularized methods are now handled by Mixins ---
+    # find, select, click, type, fill, wait_for_selector, etc. are defined in chuscraper.core.tabs.*
 
     async def get(
         self, url: str = "about:blank", new_tab: bool = False, new_window: bool = False
@@ -663,6 +400,33 @@ class Tab(Connection):
         if not node:
             return None
         return element.create(node, self, doc)
+
+    async def resolve_node(self, backend_node_id: int) -> Element:
+        """
+        Resolves a backend node id into a proper Element handle.
+        """
+        doc = await self.send(cdp.dom.get_document(-1, True))
+        try:
+            # First try to find it in the current doc tree
+            node = util.filter_recurse(doc, lambda n: n.backend_node_id == backend_node_id)
+            if node:
+                return element.create(node, self, doc)
+            
+            # If not in tree, resolve it via CDP
+            obj = await self.send(cdp.dom.resolve_node(backend_node_id=backend_node_id))
+            # request_node returns nodeId
+            node_id = await self.send(cdp.dom.request_node(object_id=obj.object_id))
+            # Now we need the actual node object. Since we have node_id, we can refetch doc?
+            # Or use a more direct approach. 
+            # Re-fetching doc is safest to ensure 'element.create' has the full tree context.
+            doc = await self.send(cdp.dom.get_document(-1, True))
+            node = util.filter_recurse(doc, lambda n: n.node_id == node_id)
+            if node:
+                return element.create(node, self, doc)
+                
+            raise ProtocolException("Could not resolve backend node into an element")
+        finally:
+            await self.disable_dom_agent()
 
     async def find_elements_by_text(
         self,
@@ -1743,96 +1507,7 @@ class Tab(Connection):
             )
         )
 
-    async def get_local_storage(self) -> dict[str, str]:
-        """
-        get local storage items as dict of strings (careful!, proper deserialization needs to be done if needed)
-
-        :return:
-        :rtype:
-        """
-        if self.target is None or not self.target.url:
-            await self.wait()
-
-        # there must be a better way...
-        origin = "/".join(self.url.split("/", 3)[:-1] if self.url else [])
-
-        items = await self.send(
-            cdp.dom_storage.get_dom_storage_items(
-                cdp.dom_storage.StorageId(is_local_storage=True, security_origin=origin)
-            )
-        )
-        retval: dict[str, str] = {}
-        for item in items:
-            retval[item[0]] = item[1]
-        return retval
-
-    async def set_local_storage(self, items: dict[str, str]) -> None:
-        """
-        set local storage.
-        dict items must be strings. simple types will be converted to strings automatically.
-
-        :param items: dict containing {key:str, value:str}
-        :return:
-        :rtype:
-        """
-        if self.target is None or not self.target.url:
-            await self.wait()
-        # there must be a better way...
-        origin = "/".join(self.url.split("/", 3)[:-1] if self.url else [])
-
-        await asyncio.gather(
-            *[
-                self.send(
-                    cdp.dom_storage.set_dom_storage_item(
-                        storage_id=cdp.dom_storage.StorageId(
-                            is_local_storage=True, security_origin=origin
-                        ),
-                        key=str(key),
-                        value=str(val),
-                    )
-                )
-                for key, val in items.items()
-            ]
-        )
-
-    async def set_user_agent(
-        self,
-        user_agent: str | None = None,
-        accept_language: str | None = None,
-        platform: str | None = None,
-    ) -> None:
-        """
-        Set the user agent, accept language, and platform.
-
-        These correspond to:
-            - navigator.userAgent
-            - navigator.language
-            - navigator.platform
-
-        Note: In most cases, you should instead pass the user_agent option to chuscraper.start().
-        This ensures that the user agent is set before the browser starts and correctly applies to
-        all pages and requests.
-
-        :param user_agent: user agent string
-        :param accept_language: accept language string
-        :param platform: platform string
-        :return:
-        :rtype:
-        """
-        if not user_agent:
-            user_agent = await self.evaluate("navigator.userAgent")  # type: ignore
-            if not user_agent:
-                raise ValueError(
-                    "Could not read existing user agent from navigator object"
-                )
-
-        await self.send(
-            cdp.network.set_user_agent_override(
-                user_agent=user_agent,
-                accept_language=accept_language,
-                platform=platform,
-            )
-        )
+    # Storage and Network overrides are now in mixins
 
     async def markdown(self) -> str:
         """

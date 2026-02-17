@@ -12,6 +12,7 @@ from chuscraper.core.element import Element
 from chuscraper.core.tab import Tab
 from chuscraper.core.util import loop, start
 from chuscraper.core.keys import KeyEvents, SpecialKeys, KeyPressEvent, KeyModifiers
+from chuscraper.core.observability import Logger, FailureDumper
 from chuscraper import ai
 from chuscraper import chus_ai
 
@@ -34,4 +35,6 @@ __all__ = [
     "KeyModifiers",
     "ai",
     "chus_ai",
+    "Logger",
+    "FailureDumper",
 ]

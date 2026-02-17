@@ -19,16 +19,9 @@ class AIProvider(ABC):
 
 class GeminiProvider(AIProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash"):
-        try:
-            from google import genai
-            from google.genai import types
-            self.genai = genai
-            self.types = types
-        except ImportError:
-            raise ImportError(
-                "Gemini dependencies not found. Please install them using:\n"
-                "pip install google-genai"
-            )
+        self.genai = None
+        self.types = None
+        self.errors = None
         
         # Support multiple keys for rotation: GEMINI_API_KEYS="key1,key2,key3"
         keys_env = os.environ.get("GEMINI_API_KEYS")
@@ -49,6 +42,16 @@ class GeminiProvider(AIProvider):
         self._init_client()
 
     def _init_client(self):
+        if not self.genai:
+            try:
+                from google import genai
+                from google.genai import types, errors
+                self.genai = genai
+                self.types = types
+                self.errors = errors
+            except ImportError:
+                raise ImportError("google-genai not installed.")
+        
         self.client = self.genai.Client(api_key=self.api_keys[self.current_key_index])
 
     def _rotate_key(self):
@@ -76,7 +79,8 @@ class GeminiProvider(AIProvider):
                 system_instruction=system_instruction
             )
 
-        from google.genai import errors
+        if not self.client:
+            self._init_client()
 
         # Try all keys if necessary (Round Robin + Retry)
         total_attempts = len(self.api_keys) * 2
@@ -156,21 +160,18 @@ class GeminiProvider(AIProvider):
 
 class OpenAIProvider(AIProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gpt-4o"):
+        self.client = None
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.model_name = model_name
+
+    def _init_client(self):
         try:
             from openai import OpenAI
-            self.OpenAI = OpenAI
+            if not self.api_key:
+                raise ValueError("OPENAI_API_KEY not found.")
+            self.client = OpenAI(api_key=self.api_key)
         except ImportError:
-            raise ImportError(
-                "OpenAI dependencies not found. Please install them using:\n"
-                "pip install openai"
-            )
-
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OPENAI_API_KEY not found. Pass it or set it in environment variables.")
-        
-        self.client = self.OpenAI(api_key=self.api_key)
-        self.model_name = model_name
+            raise ImportError("openai not installed.")
 
     async def generate_response(
         self, 

@@ -16,6 +16,8 @@ from . import util
 from ._contradict import ContraDict
 from .config import PathLike
 from .keys import KeyEvents, KeyPressEvent, SpecialKeys
+import random
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -398,31 +400,110 @@ class Element:
             return None
         return self.remote_object.object_id
 
-    async def click(self) -> None:
+    async def click(
+        self, 
+        mode: Literal["human", "fast", "cdp"] = "human", 
+        button: str = "left", 
+        click_count: int = 1,
+        **kwargs
+    ) -> None:
         """
-        Click the element.
-
-        :return:
-        :rtype:
+        Click the element using different modes.
+        
+        :param mode: 
+            "human" (default): Simulated mouse movement + CDP click. Most stealthy.
+            "fast": Traditional JS-based click. Fast, but detectable.
+            "cdp": Pure CDP click at center without movement.
+        :param button: "left", "right", "middle"
+        :param click_count: number of clicks
         """
-        self._remote_object = await self._tab.send(
-            cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
-        )
-        if self._remote_object.object_id is None:
-            raise ValueError("could not resolve object id for %s" % self)
-
-        arguments = [cdp.runtime.CallArgument(object_id=self._remote_object.object_id)]
-        await self.flash(0.25)
-        await self._tab.send(
-            cdp.runtime.call_function_on(
-                "(el) => el.click()",
-                object_id=self._remote_object.object_id,
-                arguments=arguments,
-                await_promise=True,
-                user_gesture=True,
-                return_by_value=True,
+        if mode == "fast":
+            self._remote_object = await self._tab.send(
+                cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
             )
-        )
+            if self._remote_object.object_id is None:
+                raise ValueError("could not resolve object id for %s" % self)
+
+            arguments = [cdp.runtime.CallArgument(object_id=self._remote_object.object_id)]
+            await self.flash(0.1)
+            await self._tab.send(
+                cdp.runtime.call_function_on(
+                    "(el) => el.click()",
+                    object_id=self._remote_object.object_id,
+                    arguments=arguments,
+                    await_promise=True,
+                    user_gesture=True,
+                    return_by_value=True,
+                )
+            )
+            return
+
+        # Scroll into view before clicking if using mouse events
+        await self.scroll_into_view()
+        pos = await self.get_position()
+        if not pos:
+            # Fallback to fast click if position unknown
+            return await self.click(mode="fast")
+
+        target_x, target_y = pos.center
+        
+        if mode == "human":
+            from .humanizer import Humanizer
+            # Human-like movement logic from Tab.human_click 
+            # (centralizing it here in Element)
+            
+            # Randomize destination slightly
+            target_x += list(util.circle(0, 0, radius=3, num=1))[0][0]
+            target_y += list(util.circle(0, 0, radius=3, num=1))[0][1]
+
+            path = Humanizer.bezier_curve(
+                self._tab._last_mouse_x, self._tab._last_mouse_y,
+                target_x, target_y,
+                steps=Humanizer.get_mouse_steps(self._tab._last_mouse_x, self._tab._last_mouse_y, target_x, target_y)
+            )
+
+            for x, y in path:
+                await self._tab.send(cdp.input_.dispatch_mouse_event(
+                    type_="mouseMoved", x=x, y=y
+                ))
+            
+            self._tab._last_mouse_x = target_x
+            self._tab._last_mouse_y = target_y
+            
+            # Click
+            await self._tab.send(cdp.input_.dispatch_mouse_event(
+                type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
+            ))
+            await asyncio.sleep(random.uniform(0.05, 0.15)) # Key down delay
+            await self._tab.send(cdp.input_.dispatch_mouse_event(
+                type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
+            ))
+        
+        elif mode == "cdp":
+            await self._tab.send(cdp.input_.dispatch_mouse_event(
+                type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
+            ))
+            await self._tab.send(cdp.input_.dispatch_mouse_event(
+                type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
+            ))
+
+    async def fill(self, text: str) -> None:
+        """
+        Clears the input and types text. 
+        More robust than Type as it ensures empty state first.
+        """
+        await self.click(mode="human") # Focus
+        await self.clear_input()
+        await self.send_keys(text)
+
+    async def type(self, text: str, delay: float = 0.0) -> None:
+        """Alias for send_keys with optional delay per char."""
+        if delay > 0:
+            for char in text:
+                await self.send_keys(char)
+                await asyncio.sleep(delay)
+        else:
+            await self.send_keys(text)
 
     async def get_js_attributes(self) -> ContraDict:
         return ContraDict(
@@ -640,6 +721,8 @@ class Element:
             else:
                 end_point = destination
 
+        from .humanizer import Humanizer
+        
         await self._tab.send(
             cdp.input_.dispatch_mouse_event(
                 "mousePressed",
@@ -649,33 +732,24 @@ class Element:
             )
         )
 
-        steps = 1 if (not steps or steps < 1) else steps
-        if steps == 1:
+        steps = steps or Humanizer.get_mouse_steps(start_point[0], start_point[1], end_point[0], end_point[1])
+        path = Humanizer.bezier_curve(
+            start_point[0], start_point[1],
+            end_point[0], end_point[1],
+            steps=steps
+        )
+
+        for x, y in path:
             await self._tab.send(
                 cdp.input_.dispatch_mouse_event(
                     "mouseMoved",
-                    x=end_point[0],
-                    y=end_point[1],
+                    x=x,
+                    y=y,
                 )
             )
-        elif steps > 1:
-            # probably the worst waay of calculating this. but couldn't think of a better solution today.
-            step_size_x = (end_point[0] - start_point[0]) / steps
-            step_size_y = (end_point[1] - start_point[1]) / steps
-            pathway = [
-                (start_point[0] + step_size_x * i, start_point[1] + step_size_y * i)
-                for i in range(steps + 1)
-            ]
-
-            for point in pathway:
-                await self._tab.send(
-                    cdp.input_.dispatch_mouse_event(
-                        "mouseMoved",
-                        x=point[0],
-                        y=point[1],
-                    )
-                )
-                await asyncio.sleep(0)
+            # Add micro-pauses for realism
+            if random.random() > 0.9:
+                await asyncio.sleep(random.uniform(0.001, 0.005))
 
         await self._tab.send(
             cdp.input_.dispatch_mouse_event(
@@ -685,6 +759,7 @@ class Element:
                 button=cdp.input_.MouseButton("left"),
             )
         )
+
 
     async def scroll_into_view(self) -> None:
         """scrolls element into view"""

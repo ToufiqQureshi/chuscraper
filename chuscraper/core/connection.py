@@ -719,6 +719,8 @@ class Listener:
         is_interactive = getattr(sys, "ps1", sys.flags.interactive)
         self._time_before_considered_idle = 0.10 if not is_interactive else 0.75
         self.idle = asyncio.Event()
+        self.idle.set()  # Initially idle
+        self._last_msg_time = 0.0
         self.run()
 
     def run(self) -> None:
@@ -738,43 +740,50 @@ class Listener:
 
     @property
     def running(self) -> bool:
-        if not self.task:
-            return False
-        if self.task.done():
-            return False
-        return True
+        return self.task is not None and not self.task.done()
 
     async def listener_loop(self) -> None:
         """
-        Listen for incoming websocket messages using async iteration.
-        Messages are processed in separate tasks to prevent blocking recv().
+        Listen for incoming websocket messages and manage idle state.
         """
         if self.connection.websocket is None:
             raise ValueError("no websocket connection")
 
+        # Start watchdog task
+        watchdog = asyncio.create_task(self._idle_watchdog())
+        
         try:
-            # Use async iteration instead of explicit recv() to avoid blocking
             async for msg in self.connection.websocket:
-                # Check if we should stop
                 if not self.running:
                     break
                 
-                # Clear idle since we got a message
+                self._last_msg_time = asyncio.get_running_loop().time()
                 self.idle.clear()
                 
-                # Spawn task to process message without blocking the loop
                 asyncio.create_task(self._process_message(msg))
 
         except asyncio.CancelledError:
-            logger.debug(
-                "task was cancelled while reading websocket, breaking loop"
-            )
-        except websockets.exceptions.ConnectionClosedError as e:
-            logger.debug(
-                "connection listener exception while reading websocket:\n%s", e
-            )
-        except Exception as e:
-            logger.error("unexpected error in listener loop: %s", e, exc_info=True)
+            pass
+        finally:
+            watchdog.cancel()
+
+    async def _idle_watchdog(self):
+        """Watchdog that sets the idle event after a period of silence."""
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                now = loop.time()
+                elapsed = now - self._last_msg_time
+                if elapsed >= self.time_before_considered_idle:
+                    if not self.idle.is_set():
+                        self.idle.set()
+                
+                # Check frequently enough
+                await asyncio.sleep(min(0.05, self.time_before_considered_idle / 2))
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(0.1)
 
 
     async def _process_message(self, msg: str) -> None:
@@ -802,21 +811,19 @@ class Listener:
                             tx(**message)
                         return
             else:
-                # probably an event
                 try:
                     event = cdp.util.parse_json_event(message)
-                    event_tx = EventTransaction(event)
-                    if not self.connection.mapper:
-                        self.connection.__count__ = itertools.count(0)
-                    event_tx.id = next(self.connection.__count__)
-                    self.connection.mapper[event_tx.id] = event_tx
                 except Exception as e:
-                    logger.info(
-                        "%s: %s  during parsing of json from event : %s"
-                        % (type(e).__name__, e.args, message),
-                        exc_info=False,
-                    )
+                    logger.debug(f"Failed to parse event: {e}")
                     return
+
+                # Create transaction object but DON'T store in connection.mapper (leaks!)
+                # EventTransaction is only for history/logging
+                event_tx = EventTransaction(event)
+                
+                self.history.append(event_tx)
+                if len(self.history) > self.max_history:
+                    self.history.popleft()
 
                 self.history.append(event_tx)
                 if len(self.history) > self.max_history:

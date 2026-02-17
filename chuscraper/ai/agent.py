@@ -12,8 +12,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 class AIPilot:
-    def __init__(self, tab: "Tab", provider: Optional[AIProvider] = None):
+    def __init__(self, tab: "Tab", provider: Optional[AIProvider] = None, safe_mode: bool = True):
         self.tab = tab
+        self.safe_mode = safe_mode
         if not provider:
             try:
                 self.provider = GeminiProvider()
@@ -80,7 +81,8 @@ class AIPilot:
             # Include if interactable OR has significant content
             if role in interactable_roles or (name and len(name) < 200):
                 item = {
-                    "id": node.node_id,
+                    "id": str(node.node_id), # AXNodeID
+                    "backend_id": node.backend_node_id,
                     "role": role,
                     "name": name,
                 }
@@ -144,10 +146,25 @@ FORMAT:
 
                 action = decision.get("action", "").upper()
                 thought = decision.get("thought", "")
-                target_id = decision.get("element_id")
+                target_id = decision.get("element_id") # AXNodeId (deprecated for internal use)
+                backend_id = decision.get("backend_id") # THE GOLDEN ID
                 target_name = decision.get("name")
                 value = decision.get("value")
 
+                # Safe Browsing Mode Checks
+                if self.safe_mode:
+                    dangerous_keywords = ["delete", "logout", "payment", "buy", "purchase", "confirm", "close account"]
+                    content_to_check = (target_name or "").lower() + (value or "").lower()
+                    if any(kw in content_to_check for kw in dangerous_keywords):
+                        print(f"🛑 SAFE MODE: Blocking potentially destructive action: {target_name}")
+                        self.last_error = "Action blocked by Safe Mode (Safety Violation)"
+                        continue
+
+                    # Action Allowlist
+                    allowed_actions = ["CLICK", "TYPE", "SCROLL", "WAIT", "COMPLETE", "FAIL"]
+                    if action not in allowed_actions:
+                        print(f"🛑 SAFE MODE: Blocking unauthorized action type: {action}")
+                        continue
                 print(f"STEP {step+1}: {action} | {thought}")
                 
                 # Execute action
@@ -172,38 +189,34 @@ FORMAT:
                     self.history.append({"step": step+1, "action": action, "thought": thought, "status": "success"})
                     continue
 
-                # For interaction, we need to find the node
-                # We try to resolve backend node id first?
-                # CDP accessibility node_id is NOT the same as DOM backendNodeId usually.
-                # Actually, `get_full_ax_tree` returns nodes with `backend_node_id`.
-                # Let's check `cdp.accessibility.AXNode`. It has `backend_node_id`.
-                # But `get_semantic_tree` stored `node_id` (which is AXNodeId).
-                # We need to map AXNodeId back to BackendNodeId or find by text.
-
-                # For simplicity and robustness, we rely on 'find by text' (name) mostly,
-                # unless we can implement a robust AXNodeId -> DOM Node mapper here.
-                # Current `tab.find` works by text.
-
+                # For interaction, we now prioritize backend_id
+                from ..core import element
                 found_element = None
 
-                # 1. Try finding by Name/Text (Most robust across re-renders)
-                if target_name:
+                # 1. Direct Resolution (High Precision)
+                if backend_id:
                     try:
-                        found_element = await self.tab.find(target_name, timeout=2)
-                    except asyncio.TimeoutError:
-                        pass
-                    except Exception:
-                        pass
+                        # Get RemoteObject from backend_id
+                        # Simplest way: use a new helper in Element or Tab to resolve and wrap
+                        found_element = await self.tab.resolve_node(backend_id)
+                    except Exception as e:
+                        logger.debug(f"Direct node resolution failed: {e}")
 
-                # 2. If fail, log error
+                # 2. Fallback to Name/Text search if ID fails
+                if not found_element and target_name:
+                    try:
+                        found_element = await self.tab.find(target_name, timeout=3)
+                    except: pass
+
+                # 3. If fail, log error
                 if not found_element and action in ["CLICK", "TYPE"]:
-                    raise ValueError(f"Could not find element with name '{target_name}' or ID '{target_id}'")
+                    raise ValueError(f"Could not find element '{target_name}' (Backend ID: {backend_id})")
 
                 # Perform Interaction
                 if action == "CLICK":
                     await found_element.click()
                 elif action == "TYPE":
-                    await found_element.type(value or "")
+                    await found_element.fill(value or "")
 
                 # Record Success
                 self.history.append({"step": step+1, "action": action, "target": target_name, "status": "success"})

@@ -49,77 +49,142 @@ class LocalAuthProxy:
         return self.local_port
 
     async def stop(self):
+        """Stops the server and cleans up all active tasks."""
         if self.server:
             self.server.close()
-            await self.server.wait_closed()
+            try:
+                await asyncio.wait_for(self.server.wait_closed(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
         
-        # Cancel all active client tasks
         if self.tasks:
-            for task in self.tasks:
-                task.cancel()
-            await asyncio.gather(*self.tasks, return_exceptions=True)
+            for task in list(self.tasks):
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for all tasks to settle with a timeout
+            if self.tasks:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*self.tasks, return_exceptions=True), 
+                        timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    pass
             self.tasks.clear()
 
-    async def handle_client(self, client_reader, client_writer):
+    async def handle_client(self, client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter):
         """Handles a connection from the browser."""
         task = asyncio.current_task()
-        self.tasks.add(task)
-        try:
-            # Connect to upstream proxy
-            upstream_reader, upstream_writer = await asyncio.open_connection(
-                self.upstream_host, self.upstream_port
-            )
+        if task:
+            self.tasks.add(task)
             
+        upstream_writer = None
+        try:
+            # Connect to upstream proxy with timeout
+            try:
+                upstream_reader, upstream_writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.upstream_host, self.upstream_port),
+                    timeout=5.0
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.error(f"Failed to connect to upstream proxy {self.upstream_host}:{self.upstream_port}: {e}")
+                return
+
             # Read the initial request line from client (Chrome)
             # Chrome sends: CONNECT target.com:443 HTTP/1.1
             header_data = b""
-            while True:
-                line = await client_reader.readline()
-                header_data += line
-                if line == b'\r\n' or line == b'\n' or not line:
-                    break
+            is_connect = False
             
-            # Inject Proxy-Authorization
-            if self.auth_header:
-                # We need to insert the header before the final CRLF
-                # header_data ends with \r\n
-                headers = header_data.decode()
-                lines = headers.splitlines()
-                # Remove empty line at end
-                if lines and not lines[-1]:
-                    lines.pop()
-                
-                lines.append(f"Proxy-Authorization: {self.auth_header}")
-                lines.append("") # Empty line to end headers
-                lines.append("")
-                
-                new_header_data = "\r\n".join(lines).encode()
-            else:
-                new_header_data = header_data
+            try:
+                while True:
+                    # Use timeout to prevent vertical deadlock
+                    line = await asyncio.wait_for(client_reader.readline(), timeout=5.0)
+                    if not line:
+                        break
+                    
+                    if not header_data:
+                        if line.startswith(b"CONNECT"):
+                            is_connect = True
+                    
+                    header_data += line
+                    if line == b'\r\n' or line == b'\n':
+                        break
+            except asyncio.TimeoutError:
+                logger.debug("Timeout reading headers from client")
+                return
 
-            # Forward modified headers to upstream
-            upstream_writer.write(new_header_data)
-            await upstream_writer.drain()
+            # If it's a CONNECT request, we need to respond to the client (Chrome)
+            # that the tunnel is established AFTER we successfully connected to upstream.
+            if is_connect:
+                # We forward the CONNECT to upstream if it's a proxy 
+                # (some proxies expect CONNECT, others expect raw tunnel if passed via --proxy-server)
+                # For basic HTTP proxies with auth, we send the CONNECT + Auth.
+                
+                headers = header_data.decode(errors='ignore')
+                lines = headers.splitlines()
+                
+                if self.auth_header:
+                    # Inject Proxy-Authorization
+                    if lines and not any("Proxy-Authorization" in l for l in lines):
+                        lines.append(f"Proxy-Authorization: {self.auth_header}")
+                
+                # Reconstruct headers
+                new_header_data = ("\r\n".join(lines) + "\r\n\r\n").encode()
+                upstream_writer.write(new_header_data)
+                await upstream_writer.drain()
+                
+                # IMPORTANT: We MUST tell Chrome we are ready if we are the "Final" hop it sees.
+                # Chrome expects "HTTP/1.1 200 Connection Established"
+                client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                await client_writer.drain()
+                
+            else:
+                # Standard GET/POST request (Non-HTTPS or explicit proxy)
+                if self.auth_header:
+                    headers = header_data.decode(errors='ignore')
+                    lines = headers.splitlines()
+                    if lines and not any("Proxy-Authorization" in l for l in lines):
+                        lines.append(f"Proxy-Authorization: {self.auth_header}")
+                    new_header_data = ("\r\n".join(lines) + "\r\n\r\n").encode()
+                else:
+                    new_header_data = header_data
+
+                upstream_writer.write(new_header_data)
+                await upstream_writer.drain()
 
             # Create pipe tasks
             await asyncio.gather(
                 self.pipe(client_reader, upstream_writer),
-                self.pipe(upstream_reader, client_writer)
+                self.pipe(upstream_reader, client_writer),
+                return_exceptions=True
             )
 
         except asyncio.CancelledError:
             pass
-        except Exception:
-            # logger.debug(f"Proxy tunnel error: {e}")
-            pass
+        except Exception as e:
+            logger.debug(f"Proxy tunnel error: {e}")
         finally:
-            client_writer.close()
-            self.tasks.discard(task)
+            try:
+                client_writer.close()
+                await client_writer.wait_closed()
+            except: pass
+            
+            if upstream_writer:
+                try:
+                    upstream_writer.close()
+                    await upstream_writer.wait_closed()
+                except: pass
+                
+            if task:
+                self.tasks.discard(task)
 
-    async def pipe(self, reader, writer):
+    async def pipe(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        """Transfers data between two streams."""
         try:
             while not reader.at_eof():
-                data = await reader.read(4096)
+                # Read with a large buffer, but wait for data
+                data = await reader.read(8192)
                 if not data:
                     break
                 writer.write(data)
@@ -127,4 +192,7 @@ class LocalAuthProxy:
         except Exception:
             pass
         finally:
-            writer.close()
+            try:
+                writer.close()
+            except: pass
+
