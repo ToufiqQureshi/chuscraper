@@ -1,6 +1,6 @@
 [project]
 name = "chuscraper"
-version = "0.18.0"
+dynamic = ["version"]
 description = "A blazing fast, async-first, undetectable webscraping/web automation framework"
 readme = "README.md"
 authors = [{ name = "Toufiq Qureshi", email = "toufiq@example.com" }]
@@ -102,3 +102,6 @@ module = [
     "asyncio_atexit",
 ]
 ignore_missing_imports = true
+
+[tool.hatch.version]
+path = "chuscraper/_version.py"
