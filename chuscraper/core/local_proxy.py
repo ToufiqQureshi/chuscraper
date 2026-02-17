@@ -81,7 +81,27 @@ class LocalAuthProxy:
             
         upstream_writer = None
         try:
-            # Connect to upstream proxy with timeout
+            # Read first chunk (headers)
+            chunk = await asyncio.wait_for(client_reader.read(4096), timeout=5.0)
+            if not chunk:
+                return
+
+            is_connect = chunk.startswith(b"CONNECT")
+            
+            # Inject Auth if we have it and it's not already there
+            if self.auth_header and b"Proxy-Authorization" not in chunk:
+                # Standard HTTP header injection
+                # Insertion before the first header terminator
+                terminator = b"\r\n\r\n" if b"\r\n\r\n" in chunk else b"\n\n"
+                if terminator in chunk:
+                    parts = chunk.split(terminator, 1)
+                    new_header_data = parts[0] + b"\r\nProxy-Authorization: " + self.auth_header.encode() + terminator + parts[1]
+                else:
+                    new_header_data = chunk.rstrip() + b"\r\nProxy-Authorization: " + self.auth_header.encode() + b"\r\n\r\n"
+            else:
+                new_header_data = chunk
+
+            # Connect to upstream proxy
             try:
                 upstream_reader, upstream_writer = await asyncio.wait_for(
                     asyncio.open_connection(self.upstream_host, self.upstream_port),
@@ -91,74 +111,21 @@ class LocalAuthProxy:
                 logger.error(f"Failed to connect to upstream proxy {self.upstream_host}:{self.upstream_port}: {e}")
                 return
 
-            # Read the initial request line from client (Chrome)
-            # Chrome sends: CONNECT target.com:443 HTTP/1.1
-            header_data = b""
-            is_connect = False
+            # Send modified headers to upstream
+            upstream_writer.write(new_header_data)
+            await upstream_writer.drain()
+
+            # Pipe the bidirectional data
+            # Use FIRST_COMPLETED to ensure cleanup if either side closes
+            pipe_client = asyncio.create_task(self.pipe(client_reader, upstream_writer), name="pipe_client")
+            pipe_upstream = asyncio.create_task(self.pipe(upstream_reader, client_writer), name="pipe_upstream")
             
-            try:
-                while True:
-                    # Use timeout to prevent vertical deadlock
-                    line = await asyncio.wait_for(client_reader.readline(), timeout=5.0)
-                    if not line:
-                        break
-                    
-                    if not header_data:
-                        if line.startswith(b"CONNECT"):
-                            is_connect = True
-                    
-                    header_data += line
-                    if line == b'\r\n' or line == b'\n':
-                        break
-            except asyncio.TimeoutError:
-                logger.debug("Timeout reading headers from client")
-                return
-
-            # If it's a CONNECT request, we need to respond to the client (Chrome)
-            # that the tunnel is established AFTER we successfully connected to upstream.
-            if is_connect:
-                # We forward the CONNECT to upstream if it's a proxy 
-                # (some proxies expect CONNECT, others expect raw tunnel if passed via --proxy-server)
-                # For basic HTTP proxies with auth, we send the CONNECT + Auth.
-                
-                headers = header_data.decode(errors='ignore')
-                lines = headers.splitlines()
-                
-                if self.auth_header:
-                    # Inject Proxy-Authorization
-                    if lines and not any("Proxy-Authorization" in l for l in lines):
-                        lines.append(f"Proxy-Authorization: {self.auth_header}")
-                
-                # Reconstruct headers
-                new_header_data = ("\r\n".join(lines) + "\r\n\r\n").encode()
-                upstream_writer.write(new_header_data)
-                await upstream_writer.drain()
-                
-                # IMPORTANT: We MUST tell Chrome we are ready if we are the "Final" hop it sees.
-                # Chrome expects "HTTP/1.1 200 Connection Established"
-                client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                await client_writer.drain()
-                
-            else:
-                # Standard GET/POST request (Non-HTTPS or explicit proxy)
-                if self.auth_header:
-                    headers = header_data.decode(errors='ignore')
-                    lines = headers.splitlines()
-                    if lines and not any("Proxy-Authorization" in l for l in lines):
-                        lines.append(f"Proxy-Authorization: {self.auth_header}")
-                    new_header_data = ("\r\n".join(lines) + "\r\n\r\n").encode()
-                else:
-                    new_header_data = header_data
-
-                upstream_writer.write(new_header_data)
-                await upstream_writer.drain()
-
-            # Create pipe tasks
-            await asyncio.gather(
-                self.pipe(client_reader, upstream_writer),
-                self.pipe(upstream_reader, client_writer),
-                return_exceptions=True
+            done, pending = await asyncio.wait(
+                [pipe_client, pipe_upstream], 
+                return_when=asyncio.FIRST_COMPLETED
             )
+            for p in pending:
+                p.cancel()
 
         except asyncio.CancelledError:
             pass

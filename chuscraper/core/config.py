@@ -240,7 +240,8 @@ class Config:
         args += ["--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch"]
         args += ["--disable-session-crashed-bubble"]
         if self.expert:
-            args += ["--disable-web-security", "--disable-site-isolation-trials"]
+            # Removed --disable-web-security as it causes ERR_SSL_PROTOCOL_ERROR on some sites
+            pass
         if self._browser_args:
             args.extend([arg for arg in self._browser_args if arg not in args])
         if self.headless:

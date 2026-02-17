@@ -499,6 +499,7 @@ class Browser:
         # Instead of Extensions or CDP (which fail/hang), we start a local TCP proxy
         # that handles upstream authentication transparently.
         # Chrome just sees an open proxy on localhost.
+        resolved_proxy = None
         if self.config.proxy:
              from . import local_proxy
              
@@ -506,19 +507,23 @@ class Browser:
              self._local_proxy = local_proxy.LocalAuthProxy(self.config.proxy)
              local_port = await self._local_proxy.start()
              
-             # Point Chrome to local proxy
-             # This overrides the original proxy string in config
-             # ensuring config() generates the correct --proxy-server flag
-             original_proxy = self.config.proxy
-             self.config.proxy = f"http://127.0.0.1:{local_port}"
-             logger.info(f"Started Local Auth Proxy: 127.0.0.1:{local_port} -> {original_proxy}")
+             # Point Chrome to local proxy, but DO NOT overwrite self.config.proxy
+             # as it's needed by the CDP auth handler (_handle_auth)
+             resolved_proxy = f"127.0.0.1:{local_port}"
+             logger.info(f"Started Local Auth Proxy: {resolved_proxy} -> {self.config.proxy}")
 
         exe = self.config.browser_executable_path
         params = self.config()
         
-        # Note: --disable-blink-features=AutomationControlled is now in
-        # config._default_browser_args. No need to add it here.
-        
+        if resolved_proxy:
+            # Override --proxy-server if it exists, or append it
+            for i, p in enumerate(params):
+                if p.startswith("--proxy-server="):
+                    params[i] = f"--proxy-server={resolved_proxy}"
+                    break
+            else:
+                params.append(f"--proxy-server={resolved_proxy}")
+
         params.append("about:blank")
 
         logger.info(
