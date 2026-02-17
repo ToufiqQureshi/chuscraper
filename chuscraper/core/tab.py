@@ -188,6 +188,47 @@ class Tab(
             raise ValueError("this tab has no browser attribute")
         return f"http://{self.browser.config.host}:{self.browser.config.port}/devtools/inspector.html?ws={self.websocket_url[5:]}"
 
+    async def get(
+        self, url: str = "about:blank", new_tab: bool = False, new_window: bool = False
+    ) -> Tab:
+        """
+        Main navigation method.
+        :param url: URL to navigate to.
+        :param new_tab: Whether to open in a new tab.
+        :param new_window: Whether to open in a new window.
+        """
+        if not self.browser:
+            raise AttributeError("Tab has no browser, cannot use get()")
+        
+        if new_window or new_tab:
+            return await self.browser.get(url, new_tab=new_tab, new_window=new_window)
+        
+        await self.send(cdp.page.navigate(url))
+        try:
+            # wait for idle state (production hardening)
+            # using a shorter timeout for the initial get wait to prevent hangs
+            await self.wait(10) 
+        except:
+            pass
+        return self
+
+    async def goto(self, url: str, **kwargs: Any) -> Tab:
+        """Alias for get()."""
+        return await self.get(url, **kwargs)
+
+    async def sleep(self, seconds: float = 1.0) -> None:
+        """Utility method to let the script 'breathe'."""
+        await asyncio.sleep(seconds)
+
+    async def close(self):
+        """Closes the tab/target."""
+        if self.browser:
+            await self.send(cdp.target.close_target(self.target_id))
+
+    async def stop(self):
+        """Cleanup resources."""
+        await self.close()
+
     async def select_text(self, selector: str, timeout: Union[int, float] = 10) -> str | None:
         """One-liner to find an element and return its inner text."""
         el = await self.select(selector, timeout=timeout)
