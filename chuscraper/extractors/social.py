@@ -12,7 +12,7 @@ Extracts profiles from:
 """
 
 import re
-from typing import Set, Dict, List
+from typing import Set, Dict
 from urllib.parse import urlparse
 
 

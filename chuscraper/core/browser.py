@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import copy
 import http
 import http.cookiejar
@@ -321,7 +320,7 @@ class Browser:
                 # Ignore errors if request is already closed or invalid interception ID
                 pass
 
-        asyncio.create_task(safe_continue()) 
+        asyncio.create_task(safe_continue())
 
     async def _handle_attached_to_target(self, event: cdp.target.AttachedToTarget) -> None:
         """
@@ -436,6 +435,8 @@ class Browser:
 
         else:
             p = self.main_tab
+            if not p:
+                return await self.get(url, new_tab=True)
             await p.get(url)
             return p
 

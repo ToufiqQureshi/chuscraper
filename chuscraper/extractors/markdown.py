@@ -5,7 +5,6 @@ Designed to produce "LLM-Ready" markdown by removing clutter.
 
 import re
 import logging
-from typing import Optional
 from bs4 import BeautifulSoup
 import html2text
 

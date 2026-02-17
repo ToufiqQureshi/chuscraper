@@ -39,7 +39,8 @@ class AIPilot:
         if match:
             try:
                 return json.loads(match.group(1))
-            except: pass
+            except json.JSONDecodeError:
+                pass
 
         # Try finding first { and last } (Naive repair)
         try:
@@ -48,7 +49,8 @@ class AIPilot:
             if start != -1 and end != -1:
                 json_str = text[start:end+1]
                 return json.loads(json_str)
-        except: pass
+        except json.JSONDecodeError:
+            pass
 
         raise ValueError(f"Could not extract valid JSON from response. Raw: {text[:200]}...")
 
@@ -188,7 +190,10 @@ FORMAT:
                 if target_name:
                     try:
                         found_element = await self.tab.find(target_name, timeout=2)
-                    except: pass
+                    except asyncio.TimeoutError:
+                        pass
+                    except Exception:
+                        pass
 
                 # 2. If fail, log error
                 if not found_element and action in ["CLICK", "TYPE"]:

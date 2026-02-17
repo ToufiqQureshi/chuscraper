@@ -10,7 +10,6 @@ This module provides utilities to simulate natural human browsing patterns:
 
 import asyncio
 import random
-from typing import Optional
 
 
 class HumanBehavior:

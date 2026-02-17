@@ -8,7 +8,6 @@ import json
 import logging
 import sys
 import types
-import typing
 from asyncio import iscoroutinefunction
 from typing import (
     TYPE_CHECKING,
