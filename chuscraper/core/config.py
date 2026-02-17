@@ -240,8 +240,8 @@ class Config:
         args += ["--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch"]
         args += ["--disable-session-crashed-bubble"]
         if self.expert:
-            # Removed --disable-web-security as it causes ERR_SSL_PROTOCOL_ERROR on some sites
-            pass
+            # Added --test-type to suppress "unsupported command-line flag" banners (like AutomationControlled)
+            args.append("--test-type")
         if self._browser_args:
             args.extend([arg for arg in self._browser_args if arg not in args])
         if self.headless:

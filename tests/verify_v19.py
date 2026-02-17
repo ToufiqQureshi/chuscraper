@@ -14,6 +14,7 @@ PROXY_URL = "http://11de131690b3fdc7ba16__cr.in:e3e7d1a8f82bd8e3@gw.dataimpulse.
 TARGET_SITES = [
     "https://www.browserscan.net/",
     "https://bot.sannysoft.com/",
+    "https://abrahamjuliot.github.io/creepjs/"
 ]
 
 async def run_audit(url: str):
@@ -27,11 +28,13 @@ async def run_audit(url: str):
 
     try:
         page = await browser.get(url)
-        logger.info(f"✅ Loaded {url}. Waiting 15s for stability check...")
+        logger.info(f"✅ Loaded {url}. Waiting 30s for stability check...")
 
-        await asyncio.sleep(15)
+        await asyncio.sleep(30) # CreepJS needs time to calculate fingerprint
 
         filename = "verify_" + url.split("//")[1].split(".")[1] + ".png"
+        if "creepjs" in url:
+            filename = "verify_creepjs.png"
         await page.save_screenshot(filename, full_page=True)
         logger.info(f"📸 Screenshot saved as {filename}")
         
