@@ -7,9 +7,7 @@ Extractors for:
 """
 
 from .markdown import html_to_markdown
-from .structured import StructuredExtractor
 
 __all__ = [
     'html_to_markdown',
-    'StructuredExtractor',
 ]
