@@ -25,6 +25,7 @@ from . import tab, util, stealth
 from ._contradict import ContraDict
 from .config import BrowserType, Config, PathLike, is_posix
 from .connection import Connection
+from .banner import print_banner
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,10 @@ class Browser:
                 **kwargs,
             )
         instance = cls(config)
+
+        # Display banner on first creation
+        print_banner()
+
         await instance.start()
 
         async def browser_atexit() -> None:
@@ -504,10 +509,10 @@ class Browser:
 
         # 0. Automated Localization (Timezone from IP)
         if self.config.stealth and self.config.proxy and not self.config.timezone:
-            logger.info("Stealth mode enabled with proxy. Attempting to detect timezone from IP...")
+            logger.debug("Stealth mode enabled with proxy. Attempting to detect timezone from IP...")
             self.config.timezone = await util.get_timezone_from_ip(self.config.proxy)
             if self.config.timezone:
-                logger.info(f"Automatically set timezone to {self.config.timezone}")
+                logger.debug(f"Automatically set timezone to {self.config.timezone}")
 
         # PATCHRIGHT-LEVEL: Local Proxy Forwarding (The "Golden Standard")
         resolved_proxy = None
@@ -521,7 +526,7 @@ class Browser:
              # Point Chrome to local proxy, but DO NOT overwrite self.config.proxy
              # as it's needed by the CDP auth handler (_handle_auth)
              resolved_proxy = f"127.0.0.1:{local_port}"
-             logger.info(f"Started Local Auth Proxy: {resolved_proxy} -> {self.config.proxy}")
+             logger.debug(f"Started Local Auth Proxy: {resolved_proxy} -> {self.config.proxy}")
 
         exe = self.config.browser_executable_path
         params = self.config()
@@ -537,7 +542,7 @@ class Browser:
 
         params.append("about:blank")
 
-        logger.info(
+        logger.debug(
             "starting\n\texecutable :%s\n\narguments:\n%s", exe, "\n\t".join(params)
         )
         if not connect_existing:
@@ -576,7 +581,7 @@ class Browser:
         self.connection = Connection(self.info.webSocketDebuggerUrl, _owner=self)
 
         if self.config.autodiscover_targets:
-            logger.info("enabling autodiscover targets")
+            logger.debug("enabling autodiscover targets")
 
             # self.connection.add_handler(
             #     cdp.target.TargetInfoChanged, self._handle_target_update
