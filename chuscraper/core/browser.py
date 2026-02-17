@@ -801,27 +801,35 @@ class Browser:
         Stop the browser instance, including local proxies and temporary files.
         Ensures proper cleanup of zombie processes.
         """
+        # 1. Close CDP Connection
         if self.connection and not self.connection.closed:
             try:
+                # Try graceful browser close command
                 await self.connection.send(cdp.browser.close())
             except Exception:
-                logger.warning(
-                    "Could not send the close command when stopping the browser. Likely the browser is already gone. Closing the connection."
-                )
-            await self.connection.aclose()
+                # Often browser is already gone or disconnecting
+                pass
+            try:
+                # Ensure websocket is closed
+                await self.connection.aclose()
+            except Exception as e:
+                logger.debug(f"Error closing websocket connection: {e}")
             logger.debug("closed the connection")
 
+        # 2. Terminate Browser Process
         if self._process:
             try:
-                self._process.terminate()
-                try:
-                    import subprocess
-                    await asyncio.to_thread(self._process.wait, timeout=3.0)
-                except (asyncio.TimeoutError, subprocess.TimeoutExpired):
-                    logger.warning("Browser process did not terminate gracefully, sending KILL signal.")
-                    self._process.kill()
-                    await asyncio.to_thread(self._process.wait)
+                if self._process.poll() is None:
+                    self._process.terminate()
+                    try:
+                        import subprocess
+                        await asyncio.to_thread(self._process.wait, timeout=3.0)
+                    except (asyncio.TimeoutError, subprocess.TimeoutExpired):
+                        logger.warning("Browser process did not terminate gracefully, sending KILL signal.")
+                        self._process.kill()
+                        await asyncio.to_thread(self._process.wait)
             except ProcessLookupError:
+                # Process already died
                 pass
             except Exception as e:
                 logger.error(f"Error while stopping browser process: {e}")
@@ -829,7 +837,7 @@ class Browser:
         self._process = None
         self._process_pid = None
 
-        # Stop local proxy if it exists
+        # 3. Stop Local Proxy
         if self._local_proxy:
             try:
                 await self._local_proxy.stop()
@@ -838,7 +846,10 @@ class Browser:
                 logger.debug(f"Error stopping local proxy: {e}")
             self._local_proxy = None
 
+        # 4. Cleanup Temporary Profile
         await self._cleanup_temporary_profile()
+
+    close = stop
 
     async def _cleanup_temporary_profile(self) -> None:
         if not self.config or self.config.uses_custom_data_dir:

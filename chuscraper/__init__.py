@@ -13,8 +13,8 @@ from chuscraper.core.tab import Tab
 from chuscraper.core.util import loop, start
 from chuscraper.core.keys import KeyEvents, SpecialKeys, KeyPressEvent, KeyModifiers
 from chuscraper.core.observability import Logger, FailureDumper
-from chuscraper import ai
-from chuscraper import chus_ai
+
+BrowserConfig = Config
 
 __all__ = [
     "__version__",
@@ -23,6 +23,7 @@ __all__ = [
     "Tab",
     "cdp",
     "Config",
+    "BrowserConfig",
     "start",
     "util",
     "Element",
@@ -33,8 +34,6 @@ __all__ = [
     "SpecialKeys",
     "KeyPressEvent",
     "KeyModifiers",
-    "ai",
-    "chus_ai",
     "Logger",
     "FailureDumper",
 ]
