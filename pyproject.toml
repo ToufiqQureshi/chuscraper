@@ -3,7 +3,7 @@ name = "chuscraper"
 dynamic = ["version"]
 description = "A blazing fast, async-first, undetectable webscraping/web automation framework"
 readme = "README.md"
-authors = [{ name = "Toufiq Qureshi", email = "toufiq@example.com" }]
+authors = [{ name = "Toufiq Qureshi", email = "toufiq@neurofiq.in" }]
 license = { file = "LICENSE" }
 classifiers = [
     "Development Status :: 4 - Beta",

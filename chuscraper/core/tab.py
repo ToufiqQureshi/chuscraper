@@ -162,7 +162,7 @@ class Tab(
         websocket_url: str,
         target: cdp.target.TargetInfo,
         browser: Browser | None = None,
-        **kwargs: dict[str, typing.Any],
+        **kwargs: Any,
     ):
         super().__init__(websocket_url, target, browser, **kwargs)
         self.browser = browser
@@ -181,94 +181,12 @@ class Tab(
     @timeout.setter
     def timeout(self, value: float):
         self._timeout = value
+
     @property
     def inspector_url(self) -> str:
-        """
-        get the inspector url. this url can be used in another browser to show you the devtools interface for
-        current tab. useful for debugging (and headless)
-        :return:
-        :rtype:
-        """
         if not self.browser:
-            raise ValueError(
-                "this tab has no browser attribute, so you can't use inspector_url"
-            )
-
+            raise ValueError("this tab has no browser attribute")
         return f"http://{self.browser.config.host}:{self.browser.config.port}/devtools/inspector.html?ws={self.websocket_url[5:]}"
-
-    def inspector_open(self) -> None:
-        webbrowser.open(self.inspector_url, new=2)
-
-    async def disable_dom_agent(self) -> None:
-        # The DOM.disable can throw an exception if not enabled,
-        # but if it's already disabled, that's not a "real" error.
-
-        # DOM agent hasn't been enabled
-        # command:DOM.disable
-        # params:[] [code: -32000]
-
-        # If not ignored, an exception is thrown, and masks other problems
-        # (e.g., Could not find node with given id)
-
-        try:
-            await self.send(cdp.dom.disable())
-        except ProtocolException:
-            logger.debug("Ignoring DOM.disable exception", exc_info=True)
-            pass
-
-    async def open_external_inspector(self) -> None:
-        """
-        opens the system's browser containing the devtools inspector page
-        for this tab. could be handy, especially to debug in headless mode.
-        """
-        import webbrowser
-
-        webbrowser.open(self.inspector_url)
-
-    # --- Modularized methods are now handled by Mixins ---
-    # find, select, click, type, fill, wait_for_selector, etc. are defined in chuscraper.core.tabs.*
-
-    async def get(
-        self, url: str = "about:blank", new_tab: bool = False, new_window: bool = False
-    ) -> Tab:
-        """top level get. utilizes the first tab to retrieve given url.
-
-        convenience function known from selenium.
-        this function handles waits/sleeps and detects when DOM events fired, so it's the safest
-        way of navigating.
-
-        :param url: the url to navigate to
-        :param new_tab: open new tab
-        :param new_window:  open new window
-        :return: Page
-        """
-        if not self.browser:
-            raise AttributeError(
-                "this page/tab has no browser attribute, so you can't use get()"
-            )
-        if new_window and not new_tab:
-            new_tab = True
-
-        if new_tab:
-            return await self.browser.get(url, new_tab, new_window)
-        else:
-            await self.send(cdp.page.navigate(url))
-            try:
-                # Wait for idle, but timeout after 15s to prevent hangs on noisy sites
-                await self.wait(15)
-            except:
-                pass
-            return self
-
-    async def goto(
-        self, url: str = "about:blank", new_tab: bool = False, new_window: bool = False
-    ) -> Tab:
-        """Alias for get(). Matches Playwright/Puppeteer naming."""
-        return await self.get(url, new_tab, new_tab)
-
-    async def title(self) -> str:
-        """Returns the current page title."""
-        return await self.evaluate("document.title")
 
     async def select_text(self, selector: str, timeout: Union[int, float] = 10) -> str | None:
         """One-liner to find an element and return its inner text."""

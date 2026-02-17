@@ -32,12 +32,17 @@ def retry(max_attempts: int = 3, delay: float = 1.0, backoff: bool = True):
 
 class TabMixin:
     """Base class for Tab components."""
-    def __init__(self, tab: Tab):
-        self.tab = tab
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__() # Terminate or pass up the chain
 
     @property
-    def send(self):
-        return self.tab.send
+    def tab(self) -> Any:
+        return self
+
+    @property
+    def send(self) -> Any:
+        # Connection provides send()
+        return getattr(self, "send_command", getattr(self, "send", None))
 
     @property
     def timeout(self) -> float:

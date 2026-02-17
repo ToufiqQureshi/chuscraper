@@ -208,7 +208,7 @@ class Connection(metaclass=CantTouchThis):
         _owner: Browser | None = None,
         **kwargs: Any,
     ):
-        super().__init__()
+        super().__init__(**kwargs)
         self._target = target
         self.__count__ = itertools.count(0)
         self._owner = _owner
