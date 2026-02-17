@@ -248,7 +248,8 @@ class Browser:
                 self.targets.append(new_target)
                 
                 # Apply stealth/timezone to new target
-                await self._apply_stealth_and_timezone(new_target)
+                # We do this asynchronously to avoid blocking the main event handler
+                asyncio.create_task(self._apply_stealth_and_timezone(new_target))
 
                 logger.debug("target #%d created => %s", len(self.targets), new_target)
 
@@ -321,6 +322,44 @@ class Browser:
                 pass
 
         asyncio.create_task(safe_continue()) 
+
+    async def _handle_attached_to_target(self, event: cdp.target.AttachedToTarget) -> None:
+        """
+        Handles Target.attachedToTarget.
+        Injects stealth scripts into workers/frames if waiting for debugger.
+        """
+        session_id = event.session_id
+        target_info = event.target_info
+        
+        if event.waiting_for_debugger:
+            try:
+                # Only apply if stealth is enabled
+                if self.config.stealth:
+                    scripts = stealth.get_stealth_scripts()
+                    
+                    # For Workers/ServiceWorkers: Use Runtime.evaluate
+                    if target_info.type_ in ["worker", "service_worker", "shared_worker"]:
+                        for script in scripts:
+                            await self.connection.send(
+                                cdp.runtime.evaluate(expression=script),
+                                session_id=session_id
+                            )
+                            
+                    # For Pages/Iframes: Use Page.addScriptToEvaluateOnNewDocument
+                    elif target_info.type_ in ["page", "iframe"]:
+                        for script in scripts:
+                            await self.connection.send(
+                                cdp.page.add_script_to_evaluate_on_new_document(source=script),
+                                session_id=session_id
+                            )
+                            
+                # Resume execution
+                await self.connection.send(
+                    cdp.runtime.run_if_waiting_for_debugger(),
+                    session_id=session_id
+                )
+            except Exception as e:
+                logger.error(f"Failed to handle attached target {target_info.target_id}: {e}")
 
     async def _apply_stealth_and_timezone(self, tab_obj: tab.Tab) -> None:
         """
@@ -547,8 +586,17 @@ class Browser:
             self.connection.handlers[cdp.target.TargetCrashed] = [
                 self._handle_target_update
             ]
+            # Handle auto-attached targets (Workers, Iframes) for stealth injection
+            self.connection.handlers[cdp.target.AttachedToTarget] = [
+                self._handle_attached_to_target
+            ]
             
             await self.connection.send(cdp.target.set_discover_targets(discover=True))
+            await self.connection.send(
+                cdp.target.set_auto_attach(
+                    auto_attach=True, wait_for_debugger_on_start=True, flatten=True
+                )
+            )
         await self.update_targets()
         
         # Apply stealth/timezone to initial targets

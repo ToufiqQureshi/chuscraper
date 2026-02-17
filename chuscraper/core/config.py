@@ -167,6 +167,7 @@ class Config:
             "--disable-background-networking",
             "--disable-dev-shm-usage",
             "--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch",
+            "--disable-blink-features=AutomationControlled",
             "--disable-session-crashed-bubble",
             "--disable-search-engine-choice-screen",
         ]

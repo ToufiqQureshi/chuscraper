@@ -4,6 +4,8 @@ import asyncio
 import base64
 import datetime
 import logging
+import random
+import time
 import pathlib
 import re
 import secrets
@@ -24,6 +26,7 @@ from ..cdp.network import ResourceType
 from ..cdp.runtime import DeepSerializedValue
 from ..extractors.markdown import html_to_markdown
 from ..extractors.structured import StructuredExtractor
+from .humanizer import Humanizer
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -146,6 +149,9 @@ class Tab(Connection):
         self.browser = browser
         self._dom = None
         self._window_id = None
+        # Track last mouse position for human-like movements (default to top-left safe zone)
+        self._last_mouse_x = 0
+        self._last_mouse_y = 0
 
     @property
     def inspector_url(self) -> str:
@@ -305,6 +311,79 @@ class Tab(Connection):
         cluster_list = KeyEvents.from_text(text, KeyPressEvent.DOWN_AND_UP)
         for cluster in cluster_list:
              await self.send(cdp.input_.dispatch_key_event(**cluster))
+
+    async def human_click(self, selector: str, timeout: Union[int, float] = 10) -> None:
+        """
+        Simulates a human-like mouse movement and click on an element.
+        Uses Bezier curves for movement and random delays.
+        """
+        elem = await self.select(selector, timeout)
+        # We need to get the element position to aim for the center
+        pos = await elem.get_position(abs=False) # cdp coordinates are relative to viewport? 
+        # Actually dispatch_mouse_event expects viewport coordinates.
+        # Element.get_position(abs=False) returns viewport coordinates (if not scrolled out?)
+        # Let's double check get_position implementation. 
+        # It uses get_content_quads which returns viewport coordinates.
+        
+        if not pos:
+             # Fallback to standard click if position unknown
+            await elem.click()
+            return
+            
+        target_x, target_y = pos.center
+        
+        # Randomize target slightly (don't click exact center pixel)
+        target_x += list(util.circle(0, 0, radius=5, num=1))[0][0] # Simple random offset
+        target_y += list(util.circle(0, 0, radius=5, num=1))[0][1]
+        
+        # Generate path
+        path = Humanizer.bezier_curve(
+            self._last_mouse_x, self._last_mouse_y,
+            target_x, target_y,
+            steps=Humanizer.get_mouse_steps(self._last_mouse_x, self._last_mouse_y, target_x, target_y)
+        )
+        
+        # Move mouse along path
+        for x, y in path:
+            await self.send(cdp.input_.dispatch_mouse_event(
+                type_="mouseMoved", x=x, y=y
+            ))
+            # Very slight delay between movement steps? 
+            # Browser handles events fast, but let's add micro-sleeps for realism if needed.
+            # actually pure CDP flood might be too fast.
+            # await asyncio.sleep(random.uniform(0.001, 0.003)) 
+            
+        # Update last position
+        self._last_mouse_x = target_x
+        self._last_mouse_y = target_y
+        
+        # Click sequence
+        await self.send(cdp.input_.dispatch_mouse_event(
+            type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton("left"), click_count=1
+        ))
+        await asyncio.sleep(random.uniform(0.05, 0.15)) # Hold delay
+        await self.send(cdp.input_.dispatch_mouse_event(
+            type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton("left"), click_count=1
+        ))
+
+    async def human_type(self, selector: str, text: str, timeout: Union[int, float] = 10) -> None:
+        """
+        Simulates human-like typing with variable cadence and delays.
+        First clicks the element (human-like) to focus.
+        """
+        await self.human_click(selector, timeout)
+        
+        actions = Humanizer.typing_cadence(text)
+        from .keys import KeyEvents, KeyPressEvent
+        
+        for char, delay in actions:
+            # Generate key events for char
+            cluster_list = KeyEvents.from_text(char, KeyPressEvent.DOWN_AND_UP)
+            for cluster in cluster_list:
+                await self.send(cdp.input_.dispatch_key_event(**cluster))
+            
+            # Wait for the calculated delay
+            await asyncio.sleep(delay)
 
     async def find_all(
         self,

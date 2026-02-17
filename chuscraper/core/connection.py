@@ -92,10 +92,14 @@ class Transaction(asyncio.Future[Any]):
         if params:
             params = params.pop()
         self.params = params
+        self.session_id: str | None = None
 
     @property
     def message(self) -> str:
-        return json.dumps({"method": self.method, "params": self.params, "id": self.id})
+        msg = {"method": self.method, "params": self.params, "id": self.id}
+        if self.session_id:
+            msg["sessionId"] = self.session_id
+        return json.dumps(msg)
 
     @property
     def has_exception(self) -> bool:
@@ -540,6 +544,7 @@ class Connection(metaclass=CantTouchThis):
         self,
         cdp_obj: Generator[dict[str, Any], dict[str, Any], T],
         _is_update: bool = False,
+        session_id: str | None = None,
     ) -> T:
         """
         send a protocol command. the commands are made using any of the cdp.<domain>.<method>()'s
@@ -567,6 +572,9 @@ class Connection(metaclass=CantTouchThis):
 
         tx = Transaction(cdp_obj)
         tx.connection = self
+        if session_id:
+            tx.session_id = session_id
+
         if not self.mapper:
             self.__count__ = itertools.count(0)
         async with self._current_id_mutex:

@@ -24,6 +24,18 @@ Control the browser directly for simple tasks.
 ### 🛡️ Hardened Navigation
 - **Anti-Hang Engine**: Internal `get()` logic now includes a 15s default timeout for idle waits, preventing scripts from getting stuck on "noisy" analytics-heavy sites.
 
+## 🕵️‍♂️ Next-Gen Stealth & Humanization (New!)
+We've integrated **2026-grade** anti-fingerprinting and behavioral humanization to defeat advanced bot detection systems like CreepJS, Akamai, and Cloudflare Turnstile.
+
+### 🛡️ Hardened Fingerprints
+- **WebGPU Spoofing**: Reports high-end GPUs (e.g., "NVIDIA RTX 3060") instead of generic identifiers.
+- **Worker Stealth**: Advanced `AttachedToTarget` interception prevents leaks in Web Workers and Service Workers options (fixing the "Intel" GPU leak).
+- **Audio Context Jitter**: Adds micro-noise to audio processing to randomize fingerprints.
+
+### 🤖 Behavioral Humanization (The "Sidha Function")
+- **`await page.human_click(selector)`**: Moves the mouse in a natural **Bezier curve** towards the element, overshooting slightly before clicking, just like a real user.
+- **`await page.human_type(selector, text)`**: Types with variable cadence and random micro-pauses to simulate human keystrokes.
+
 ## 📦 Installation
 ```bash
 pip install chuscraper --upgrade
