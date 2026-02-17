@@ -840,6 +840,8 @@ class Browser:
 
         await self._cleanup_temporary_profile()
 
+    close = stop
+
     async def _cleanup_temporary_profile(self) -> None:
         if not self.config or self.config.uses_custom_data_dir:
             return

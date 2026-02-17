@@ -16,6 +16,8 @@ from chuscraper.core.observability import Logger, FailureDumper
 from chuscraper import ai
 from chuscraper import chus_ai
 
+BrowserConfig = Config
+
 __all__ = [
     "__version__",
     "loop",
@@ -23,6 +25,7 @@ __all__ = [
     "Tab",
     "cdp",
     "Config",
+    "BrowserConfig",
     "start",
     "util",
     "Element",

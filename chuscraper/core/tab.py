@@ -189,25 +189,30 @@ class Tab(
         return f"http://{self.browser.config.host}:{self.browser.config.port}/devtools/inspector.html?ws={self.websocket_url[5:]}"
 
     async def get(
-        self, url: str = "about:blank", new_tab: bool = False, new_window: bool = False
+        self,
+        url: str = "about:blank",
+        new_tab: bool = False,
+        new_window: bool = False,
+        timeout: int | float = 10,
     ) -> Tab:
         """
         Main navigation method.
         :param url: URL to navigate to.
         :param new_tab: Whether to open in a new tab.
         :param new_window: Whether to open in a new window.
+        :param timeout: Time to wait for initial load (seconds)
         """
         if not self.browser:
             raise AttributeError("Tab has no browser, cannot use get()")
-        
+
         if new_window or new_tab:
             return await self.browser.get(url, new_tab=new_tab, new_window=new_window)
-        
+
         await self.send(cdp.page.navigate(url))
         try:
             # wait for idle state (production hardening)
             # using a shorter timeout for the initial get wait to prevent hangs
-            await self.wait(10) 
+            await self.wait(timeout)
         except:
             pass
         return self
@@ -215,6 +220,15 @@ class Tab(
     async def goto(self, url: str, **kwargs: Any) -> Tab:
         """Alias for get()."""
         return await self.get(url, **kwargs)
+
+    async def wait(self, time: Union[float, int] = 1) -> Tab:
+        """
+        Wait for <time> seconds.
+        :param time:
+        :return: self
+        """
+        await asyncio.sleep(time)
+        return self
 
     async def sleep(self, seconds: float = 1.0) -> None:
         """Utility method to let the script 'breathe'."""
