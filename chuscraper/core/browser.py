@@ -8,6 +8,7 @@ import json
 import logging
 import pathlib
 import pickle
+import random
 import re
 import shutil
 import subprocess
@@ -334,7 +335,7 @@ class Browser:
             try:
                 # Only apply if stealth is enabled
                 if self.config.stealth:
-                    scripts = stealth.get_stealth_scripts()
+                    scripts = stealth.get_stealth_scripts(self.config)
                     
                     # For Workers/ServiceWorkers: Use Runtime.evaluate
                     if target_info.type_ in ["worker", "service_worker", "shared_worker"]:
@@ -362,24 +363,30 @@ class Browser:
 
     async def _apply_stealth_and_timezone(self, tab_obj: tab.Tab) -> None:
         """
-        Applies stealth scripts, timezone override to a tab.
-        PATCHRIGHT-LEVEL: Proxy auth handled by Extension (not CDP Fetch).
-        CDP Fetch.enable causes ALL requests to pause, leading to hangs.
+        Applies stealth scripts, timezone, and locale overrides to a tab.
         """
-        # 1. Proxy Auth: Handled by Chrome Extension (loaded in start())
-        # Extension uses chrome.proxy.settings + onAuthRequired
-        # This is the ONLY reliable method that doesn't hang.
-
-        # 2. Setup Timezone
+        # 1. Setup Timezone
         if self.config.timezone:
             try:
                 await tab_obj.send(cdp.emulation.set_timezone_override(self.config.timezone))
             except Exception as e:
                 logger.debug(f"Failed to set timezone for {tab_obj}: {e}")
 
+        # 2. Setup Locale (Coherence with UA/Timezone usually helps)
+        # Default to en-US for now or extract from config.lang
+        lang = self.config.lang or "en-US"
+        try:
+             await tab_obj.send(cdp.emulation.set_locale_override(locale=lang))
+        except Exception as e:
+             logger.debug(f"Failed to set locale for {tab_obj}: {e}")
+
         # 3. Setup Stealth Scripts
         if self.config.stealth:
-            scripts = stealth.get_stealth_scripts()
+            # Seed the session for consistent hashes
+            if not hasattr(self.config, "_stealth_seed"):
+                self.config._stealth_seed = random.randint(1, 1000000)
+            
+            scripts = stealth.get_stealth_scripts(self.config)
             for script in scripts:
                 try:
                     await tab_obj.send(cdp.page.add_script_to_evaluate_on_new_document(source=script))
@@ -495,10 +502,14 @@ class Browser:
                 % ",".join(str(_) for _ in self.config._extensions)
             )  # noqa
 
+        # 0. Automated Localization (Timezone from IP)
+        if self.config.stealth and self.config.proxy and not self.config.timezone:
+            logger.info("Stealth mode enabled with proxy. Attempting to detect timezone from IP...")
+            self.config.timezone = await util.get_timezone_from_ip(self.config.proxy)
+            if self.config.timezone:
+                logger.info(f"Automatically set timezone to {self.config.timezone}")
+
         # PATCHRIGHT-LEVEL: Local Proxy Forwarding (The "Golden Standard")
-        # Instead of Extensions or CDP (which fail/hang), we start a local TCP proxy
-        # that handles upstream authentication transparently.
-        # Chrome just sees an open proxy on localhost.
         resolved_proxy = None
         if self.config.proxy:
              from . import local_proxy

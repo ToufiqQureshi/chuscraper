@@ -365,3 +365,42 @@ async def _read_process_stderr(process: subprocess.Popen[bytes], n: int = 2**16)
     except asyncio.TimeoutError:
         logger.debug("Timeout reading process stderr")
         return ""
+async def get_timezone_from_ip(proxy: Optional[str] = None) -> Optional[str]:
+    """
+    Attempts to get the timezone for the given proxy/IP address using ipapi.co.
+    """
+    import urllib.request
+    import json
+    import ssl
+
+    url = "https://ipapi.co/timezone/"
+    
+    # Simple retry logic
+    for _ in range(2):
+        try:
+            # We use urllib to keep dependencies low, but need to handle proxies
+            handlers = []
+            if proxy:
+                # Reconstruct proxy for urllib
+                # Assuming http://user:pass@host:port or http://host:port
+                handlers.append(urllib.request.ProxyHandler({'https': proxy, 'http': proxy}))
+            
+            # Disable certificate verification if needed for some proxies, but usually risky.
+            # Here we keep it standard.
+            opener = urllib.request.build_opener(*handlers)
+            # Add User-Agent to keep ipapi happy
+            opener.addheaders = [('User-Agent', 'Mozilla/5.0')]
+            
+            def do_request():
+                with opener.open(url, timeout=5) as resp:
+                    return resp.read().decode('utf-8').strip()
+
+            tz = await asyncio.to_thread(do_request)
+            if tz and "/" in tz:
+                logger.info(f"Detected timezone from IP: {tz}")
+                return tz
+        except Exception as e:
+            logger.debug(f"Failed to fetch timezone from IP: {e}")
+            await asyncio.sleep(1)
+            
+    return None

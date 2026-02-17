@@ -6,7 +6,7 @@ import secrets
 import sys
 import tempfile
 import zipfile
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 __all__ = [
     "Config",
@@ -51,40 +51,21 @@ class Config:
         disable_webgl: Optional[bool] = False,
         proxy: Optional[str] = None,
         stealth: Optional[bool] = False,
+        stealth_options: Optional[Dict[str, bool]] = None,
         timezone: Optional[str] = None,
         **kwargs: Any,
     ):
         """
         creates a config object.
-        Can be called without any arguments to generate a best-practice config, which is recommended.
-
-        calling the object, eg :  myconfig() , will return the list of arguments which
-        are provided to the browser.
-
-        additional arguments can be added using the :py:obj:`~add_argument method`
-
-        Instances of this class are usually not instantiated by end users.
-
-        :param user_data_dir: the data directory to use (must be unique if using multiple browsers)
-        :param headless: set to True for headless mode
-        :param browser_executable_path: specify browser executable, instead of using autodetect
-        :param browser: which browser to use. Can be "chrome", "brave" or "auto". Default is "auto".
-        :param browser_args: forwarded to browser executable. eg : ["--some-chromeparam=somevalue", "some-other-param=someval"]
-        :param sandbox: disables sandbox
-        :param lang: language string to use other than the default "en-US,en;q=0.9"
-        :param user_agent: custom user-agent string
-        :param expert: when set to True, enabled "expert" mode.
-               This conveys, the inclusion of parameters: --disable-web-security ----disable-site-isolation-trials,
-               as well as some scripts and patching useful for debugging (for example, ensuring shadow-root is always in "open" mode)
-
+        ...
+        :param stealth: enables stealth mode
+        :param stealth_options: granular control over stealth patches
         :param kwargs:
         """
 
         if not browser_args:
             browser_args = []
 
-        # defer creating a temp user data dir until the browser requests it so
-        # config can be used/reused as a template for multiple browser instances
         self._user_data_dir: str | None = None
         self._custom_data_dir = False
         if user_data_dir:
@@ -98,10 +79,7 @@ class Config:
         self.headless = headless
         self.sandbox = sandbox
         
-        # BEST PRACTICE: Do NOT inject custom User-Agent.
-        # Let Chrome use its REAL, NATIVE User-Agent. Custom UAs create
-        # fingerprint mismatches (platform, version, etc) that anti-bots detect.
-        self.user_agent = user_agent  # Only set if user explicitly provides one
+        self.user_agent = user_agent 
         self.host = host
         self.port = port
         self.expert = expert
@@ -111,21 +89,23 @@ class Config:
         
         self.proxy = proxy
         self.stealth = stealth
+        self.stealth_options = stealth_options or {
+            "patch_webdriver": True,
+            "patch_canvas": True,
+            "patch_audio": True,
+            "patch_fonts": True,
+            "patch_webgpu": True,
+            "patch_client_hints": True,
+            "patch_webgl": True,
+            "patch_webrtc": True,
+            "patch_battery": True,
+            "patch_media_devices": True,
+            "patch_permissions": True,
+            "patch_chrome_runtime": True,
+        }
         self.timezone = timezone
-        
-        if self.proxy:
-            # parse proxy string
-            # format: scheme://user:pass@host:port or host:port
-            if "://" not in self.proxy:
-                self.proxy = "http://" + self.proxy
-                
-            # We no longer create the extension. 
-            # We rely on --proxy-server (added below) and CDP Fetch.authRequired (in browser.py)
-            # This mimics Playwright and avoids extension detection/issues.
-            logger.info(f"Configured proxy: {self.proxy} (Auth handled via CDP)")
 
-        # when using posix-ish operating system and running as root
-        # you must use no_sandbox = True, which in case is corrected here
+        # ... (rest of the logic)
         if is_posix and is_root() and sandbox:
             logger.info("detected root usage, auto disabling sandbox mode")
             self.sandbox = False
@@ -136,21 +116,9 @@ class Config:
         self.browser_connection_timeout = browser_connection_timeout
         self.browser_connection_max_tries = browser_connection_max_tries
 
-        # other keyword args will be accessible by attribute
         self.__dict__.update(kwargs)
         super().__init__()
-        # STEALTH-LEVEL: Hardened command flags
-        #
-        # REMOVED (detectable as stealth driver):
-        #   --enable-automation (exposes navigator.webdriver)
-        #   --disable-component-update (flags as automation)
-        #   --disable-popup-blocking (flags as automation)
-        #   --disable-default-apps (flags as automation)
-        #   --disable-extensions (blocks our proxy auth extension)
-        #
-        # ADDED:
-        #   --disable-blink-features=AutomationControlled (hides webdriver)
-        #
+
         self._default_browser_args = [
             "--remote-allow-origins=*",
             "--no-first-run",
@@ -169,6 +137,11 @@ class Config:
             "--disable-blink-features=AutomationControlled",
             "--disable-session-crashed-bubble",
             "--disable-search-engine-choice-screen",
+            # GPU/WebGL Hardening
+            "--use-gl=angle",
+            "--enable-webgl",
+            "--ignore-gpu-blocklist",
+            "--enable-accelerated-2d-canvas",
         ]
 
     @property
