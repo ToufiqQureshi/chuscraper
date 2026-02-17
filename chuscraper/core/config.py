@@ -114,7 +114,6 @@ class Config:
         self.timezone = timezone
         
         if self.proxy:
-            import urllib.parse
             # parse proxy string
             # format: scheme://user:pass@host:port or host:port
             if "://" not in self.proxy:
@@ -274,7 +273,6 @@ class Config:
                 port = 80 if parsed.scheme == "http" else 443
                 
              # Construct host:port string
-             proxy_address = f"{host}:{port}"
              
              # If it wasn't an auth proxy (no user/pass), we would just use self.proxy
              # But since we parsed it, let's reconstruct clean host:port

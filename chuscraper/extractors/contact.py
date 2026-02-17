@@ -8,7 +8,7 @@ Combines all extraction methods:
 - Website metadata
 """
 
-from typing import Dict, Set, List, Optional
+from typing import Dict, List, Optional
 from .email import EmailExtractor
 from .phone import PhoneExtractor
 from .social import SocialExtractor
@@ -76,7 +76,6 @@ class ContactExtractor:
     def _extract_metadata(html: str) -> Dict:
         """Extract website metadata."""
         from bs4 import BeautifulSoup
-        import re
         
         metadata = {
             'title': None,

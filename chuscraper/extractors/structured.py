@@ -5,7 +5,7 @@ Similar to instructor/marvin but integrated with Chuscraper's context.
 
 import json
 import logging
-from typing import Type, TypeVar, Optional, Any
+from typing import Type, TypeVar, Optional
 from pydantic import BaseModel
 
 from ..ai.providers import AIProvider, GeminiProvider

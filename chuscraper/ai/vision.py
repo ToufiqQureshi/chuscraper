@@ -1,6 +1,4 @@
-import base64
-import io
-from typing import Any, Dict, Optional, Type, TYPE_CHECKING
+from typing import Any, Optional, Type, TYPE_CHECKING
 from .providers import AIProvider, GeminiProvider
 from .schema import AISchemaHandler
 

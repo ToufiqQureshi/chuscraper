@@ -109,7 +109,7 @@ class LocalAuthProxy:
 
         except asyncio.CancelledError:
             pass
-        except Exception as e:
+        except Exception:
             # logger.debug(f"Proxy tunnel error: {e}")
             pass
         finally:

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import os
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Type
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,6 @@ class GeminiProvider(AIProvider):
 
         from google.genai import errors
 
-        max_retries = 3
-        
         # Try all keys if necessary (Round Robin + Retry)
         total_attempts = len(self.api_keys) * 2
 

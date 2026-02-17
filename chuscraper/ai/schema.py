@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, Type
+from typing import Any, Optional, Type
 try:
     from pydantic import BaseModel
 except ImportError:
