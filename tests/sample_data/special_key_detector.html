@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Special Key Detector</title>
+    <script>
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                document.getElementById('status').innerText = 'popUp is CLOSED - Click button to open again';
+                document.getElementById('mainpage').style.display = 'none';
+            }
+        });
+    </script>
+</head>
+<body>
+    <div id="status">Ready - Click button to open popUp</div>
+    <button id="mainpageButton" onclick="document.getElementById('status').innerText = 'popUp is OPEN - Press Escape to close'; document.getElementById('mainpage').style.display = 'block';">Open Popup</button>
+    <div id="mainpage" style="display:none;">
+        <div>Popup Content</div>
+    </div>
+</body>
+</html>

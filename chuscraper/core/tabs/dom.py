@@ -1,6 +1,7 @@
 from __future__ import annotations
 from .base import TabMixin
 from typing import TYPE_CHECKING, List, Optional, Union, Any, cast
+import asyncio
 from .. import element
 from .. import util
 from ... import cdp
