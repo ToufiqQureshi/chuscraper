@@ -89,6 +89,42 @@ if __name__ == "__main__":
 
 ---
 
+## ⚙️ Configuration Switches (Parameters)
+
+Chuscraper gives you full control via `zd.start()`. Here are the powerful switches you can use:
+
+### 🛠️ Core Switches
+| Switch | Description | Default |
+| :--- | :--- | :--- |
+| `headless` | Run without a visible window (`True`/`False`) | `False` |
+| `stealth` | **Master Switch** for Anti-Detection features | `False` |
+| `user_data_dir` | Path to save/load browser profile (keep logins/cookies) | `Temp` |
+| `proxy` | Proxy URL (e.g. `http://user:pass@host:port`) | `None` |
+
+### 🚀 Advanced Switches
+| Switch | Description |
+| :--- | :--- |
+| `browser_executable_path` | Custom path to Chrome/Brave binary |
+| `user_agent` | Spoof specific User-Agent string |
+| `sandbox` | Set `False` for Linux/Docker environments |
+| `disable_webgl` | Disable graphics for performance (`True`) |
+| `disable_webrtc` | Prevent IP leaks via WebRTC (`True` recommended for proxies) |
+| `lang` | Browser language (e.g., `en-US`, `hi-IN`) |
+
+### 🕵️‍♂️ Granular Stealth Options
+When `stealth=True`, you can fine-tune specific patches by passing a `stealth_options` dict:
+
+```python
+await zd.start(stealth=True, stealth_options={
+    "patch_webdriver": True,  # Hide WebDriver
+    "patch_webgl": True,      # Spoof Graphics Card
+    "patch_canvas": True,     # Add Canvas Noise
+    "patch_audio": False      # Disable Audio Fingerprinting noise
+})
+```
+
+---
+
 ## 🛡️ Stealth & Anti-Detection Proof
 
 We don't just claim to be stealthy; we prove it. Below are the results from top anti-bot detection suites, all passed with **100% "Human" status**.
@@ -121,6 +157,7 @@ We tested `chuscraper` against live websites protected by major security provide
 Full technical guides are available in the `docs/` folder:
 
 - [English (Main)](README.md)
+- [Production Readiness](website/docs/production.md)
 - [Project API Guide](docs/api_guide_v2.md)
 - [Stealth Comparison](docs/stealth_comparison.md)
 
