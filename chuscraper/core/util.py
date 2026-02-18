@@ -11,13 +11,15 @@ from typing import Any, Callable, List, Optional, Set, Union
 
 from deprecated import deprecated
 
-import chuscraper
+# import chuscraper
 
-from .element import Element
+# from .element import Element
 
 if typing.TYPE_CHECKING:
     from .browser import Browser
+    from .element import Element
     from .config import PathLike
+    from .tab import Tab
 from .. import cdp
 from .config import BrowserType, Config
 
@@ -143,7 +145,7 @@ def free_port() -> int:
 
 
 def filter_recurse_all(
-    doc: T, predicate: Union[Callable[[cdp.dom.Node], bool], Callable[[Element], bool]]
+    doc: T, predicate: Union[Callable[[cdp.dom.Node], bool], Callable[['Element'], bool]]
 ) -> List[T]:
     """
     test each child using predicate(child), and return all children for which predicate(child) == True
@@ -246,13 +248,14 @@ def remove_from_tree(tree: cdp.dom.Node, node: cdp.dom.Node) -> cdp.dom.Node:
 
 
 async def html_from_tree(
-    tree: Union[cdp.dom.Node, Element], target: chuscraper.Tab
+    tree: Union[cdp.dom.Node, 'Element'], target: 'Tab'
 ) -> str:
     if not hasattr(tree, "children"):
         raise TypeError("object should have a .children attribute")
     out = ""
     if tree and tree.children:
         for child in tree.children:
+            from .element import Element
             if isinstance(child, Element):
                 out += await child.get_html()
             elif isinstance(child, cdp.dom.Node):
