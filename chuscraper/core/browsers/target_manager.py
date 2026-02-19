@@ -150,6 +150,8 @@ class TargetManagerMixin(BrowserMixin):
         target_info = event.target_info
 
         if event.waiting_for_debugger:
+            # We must wrap everything in a try/finally to ensure the target is ALWAYS resumed.
+            # Otherwise, the browser tab will freeze forever waiting for debugger.
             try:
                 if self.config.stealth:
                     from .. import stealth
@@ -159,25 +161,29 @@ class TargetManagerMixin(BrowserMixin):
                     # Only apply to 'page' to avoid crashing on short-lived iframes/workers
                     if target_info.type_ == "page":
                         for script in scripts:
-                            await self.connection.send(
-                                cdp.page.add_script_to_evaluate_on_new_document(
-                                    source=script
-                                ),
-                                session_id=session_id,
-                            )
-                    # We skip 'iframe', 'worker', 'service_worker' to prevent 404s and hangs
+                            # Use separate try/except for each script to avoid one failure blocking others
+                            try:
+                                await self.connection.send(
+                                    cdp.page.add_script_to_evaluate_on_new_document(
+                                        source=script
+                                    ),
+                                    session_id=session_id,
+                                )
+                            except Exception as script_error:
+                                logger.debug(f"Failed to inject stealth script: {script_error}")
+
             except Exception as e:
                 logger.error(
                     f"Failed to handle attached target {target_info.target_id}: {e}"
                 )
             finally:
-                # ALWAYS RESUME execution, otherwise the tab hangs forever
+                # CRITICAL: Always resume execution
                 try:
                     await self.connection.send(
                         cdp.runtime.run_if_waiting_for_debugger(), session_id=session_id
                     )
-                except Exception:
-                    pass
+                except Exception as resume_error:
+                    logger.debug(f"Failed to resume target {target_info.target_id}: {resume_error}")
 
     async def _get_targets(self) -> typing.List[cdp.target.TargetInfo]:
         if not self.connection:

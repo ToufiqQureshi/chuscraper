@@ -20,6 +20,7 @@ from .. import cdp
 from . import util
 from ._contradict import ContraDict
 from .config import BrowserType, Config, PathLike, is_posix
+import pathlib
 from .connection import Connection
 from .banner import print_banner
 
@@ -200,55 +201,97 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             util.get_registered_instances().add(self)
 
             # Robust Port Discovery
-            # We read stderr to find the DevTools listening port if we asked for port 0
+            # We read stderr AND check DevToolsActivePort file to find the port if we asked for port 0
             if self._config.port == 0:
                 found_port = None
 
+                # Setup DevToolsActivePort file check
+                user_data_dir = pathlib.Path(self.config.user_data_dir)
+                port_file = user_data_dir / "DevToolsActivePort"
+
                 # Function to read lines with timeout
-                async def detect_port():
+                async def detect_port_stderr():
                     nonlocal found_port
                     if self._process.stderr is None:
                         return
 
-                    while self._process.poll() is None:
-                        try:
-                            line = await asyncio.wait_for(
-                                asyncio.to_thread(self._process.stderr.readline),
-                                timeout=1.0
-                            )
-                            line_str = line.decode('utf-8', errors='ignore')
+                    loop = asyncio.get_running_loop()
+                    try:
+                        # Read line by line but yield back to event loop to allow file check to win
+                        while self._process.poll() is None and found_port is None:
+                            try:
+                                line = await loop.run_in_executor(None, self._process.stderr.readline)
+                                if not line:
+                                    break
 
-                            # Log stderr for debugging if needed
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(f"Chrome stderr: {line_str.strip()}")
+                                line_str = line.decode('utf-8', errors='ignore')
 
-                            # Look for "DevTools listening on ws://127.0.0.1:12345/..."
-                            match = re.search(r'DevTools listening on ws://.+:(\d+)/', line_str)
-                            if match:
-                                found_port = int(match.group(1))
-                                logger.info(f"Discovered Chrome DevTools port: {found_port}")
-                                return
-                        except asyncio.TimeoutError:
-                            # Continue checking poll status
-                            continue
-                        except Exception as e:
-                            logger.error(f"Error reading Chrome stderr: {e}")
-                            break
+                                # Log stderr for debugging if needed
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(f"Chrome stderr: {line_str.strip()}")
+
+                                # Look for "DevTools listening on ws://127.0.0.1:12345/..."
+                                match = re.search(r'DevTools listening on ws://.+:(\d+)/', line_str)
+                                if match:
+                                    found_port = int(match.group(1))
+                                    logger.info(f"Discovered Chrome DevTools port via stderr: {found_port}")
+                                    return
+                            except Exception as e:
+                                logger.debug(f"Error reading Chrome stderr: {e}")
+                                break
+                    except Exception as e:
+                         logger.debug(f"Stderr reader exception: {e}")
+
+                async def detect_port_file():
+                    nonlocal found_port
+                    while self._process.poll() is None and found_port is None:
+                        if port_file.exists():
+                            try:
+                                content = port_file.read_text().strip()
+                                lines = content.split('\n')
+                                if lines and lines[0].isdigit():
+                                    found_port = int(lines[0])
+                                    logger.info(f"Discovered Chrome DevTools port via file: {found_port}")
+                                    return
+                            except Exception:
+                                pass
+                        await asyncio.sleep(0.1)
 
                 try:
-                    await asyncio.wait_for(detect_port(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    pass
+                    # Run both detection methods concurrently with a global timeout
+                    # Use return_when=asyncio.FIRST_COMPLETED to proceed as soon as one method succeeds
+                    done, pending = await asyncio.wait(
+                        [asyncio.create_task(detect_port_stderr()), asyncio.create_task(detect_port_file())],
+                        timeout=self.config.browser_connection_timeout * 4, # Give it reasonable time (e.g. 10-15s)
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+
+                    # Cancel pending tasks to cleanup
+                    for task in pending:
+                        task.cancel()
+
+                except Exception as e:
+                    logger.warning(f"Port discovery exception: {e}")
 
                 if found_port:
                     self._config.port = found_port
                 else:
-                    # Fallback or error? If we can't find the port, connection will likely fail.
-                    # But maybe Chrome started silently? We'll try a fallback check or let test_connection fail.
-                    logger.warning("Could not detect DevTools port from stderr. Connection may fail.")
-                    # If failed, we might want to check if the process is dead
+                    logger.error("Could not detect DevTools port from stderr OR file.")
+                    # If failed, we check if the process is dead
                     if self._process.poll() is not None:
-                        raise RuntimeError(f"Chrome process died immediately. Return code: {self._process.returncode}")
+                         # Read any remaining stderr to help debug
+                        remaining_stderr = ""
+                        try:
+                             if self._process.stderr:
+                                 remaining_stderr = self._process.stderr.read().decode('utf-8', errors='ignore')
+                        except Exception:
+                             pass
+                        raise RuntimeError(f"Chrome process died immediately. Return code: {self._process.returncode}. Stderr: {remaining_stderr}")
+                    else:
+                        # Process is running but no port found?
+                        # We should kill it to prevent zombie background processes
+                        await self.stop()
+                        raise RuntimeError("Timeout waiting for Chrome DevTools port. Process was still running but unresponsive.")
 
         self._http = HTTPApi((self.config.host, self.config.port))
 

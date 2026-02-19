@@ -200,9 +200,24 @@ class Connection:
             # Also fire generic handlers for the module/domain if registered?
             # (Skipped for now to match original behavior logic)
 
-    async def send(self, command: Any, session_id: str = None, **kwargs: Any) -> Any:
+    async def send(self, command: Any, session_id: str = None, timeout: float = 30.0, **kwargs: Any) -> Any:
+        """
+        Sends a command to the browser with built-in resilience and timeout.
+
+        :param command: CDP command (generator or dict)
+        :param session_id: Optional session ID for Target.sendMessageToTarget
+        :param timeout: Time in seconds to wait for response (default 30s)
+        """
         if self.closed:
-            await self.connect()
+            # Check if we should even try to reconnect.
+            # If the owner browser process is dead, reconnecting is futile.
+            if self._owner and self._owner.stopped:
+                raise ConnectionError("Browser process is dead. Cannot send command.")
+
+            try:
+                await self.connect()
+            except Exception as e:
+                raise ConnectionError(f"Failed to reconnect to browser: {e}")
 
         # Handle Generator-based commands (cdp module pattern)
         if inspect.isgenerator(command):
@@ -239,12 +254,16 @@ class Connection:
 
         try:
             await self.websocket.send(json.dumps(payload))
-        except Exception:
-             raise
+        except Exception as e:
+            # Clean up the transaction if send fails
+            if tx_id in self.mapper:
+                del self.mapper[tx_id]
+            raise ConnectionError(f"WebSocket send failed: {e}")
 
-        # Wait for response
+        # Wait for response with timeout
         try:
-            result = await tx.future
+            result = await asyncio.wait_for(tx.future, timeout=timeout)
+
             # If it was a generator, feed the result back (CDP pattern)
             if inspect.isgenerator(command):
                 try:
@@ -252,6 +271,11 @@ class Connection:
                 except StopIteration as e:
                     return e.value
             return result
+        except asyncio.TimeoutError:
+            # Clean up on timeout
+            if tx_id in self.mapper:
+                del self.mapper[tx_id]
+            raise TimeoutError(f"Command '{final_method}' timed out after {timeout}s")
         except Exception as e:
             raise e
 
