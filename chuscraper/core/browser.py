@@ -115,6 +115,7 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
         self._is_updating = asyncio.Event()
         self._connection = None
         self._local_proxy = None
+        self.version: str | None = None
         self._browser = self  # For BrowserMixin access
         logger.debug("Session object initialized: %s" % vars(self))
 
@@ -295,7 +296,18 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
         if self._config.port == 0:
             return False
         try:
-            self.info = ContraDict(await self._http.get("version"), silent=True)
+            resp = await self._http.get("version")
+            self.info = ContraDict(resp, silent=True)
+
+            # Auto-detect browser version for stealth coherence
+            if not self.version and "Browser" in resp:
+                # Matches "Chrome/124.0.0.0" or "HeadlessChrome/124.0.0.0"
+                match = re.search(r"(?:Chrome|Chromium)/([\d\.]+)", resp["Browser"])
+                if match:
+                    self.version = match.group(1)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"Detected Chrome Version: {self.version}")
+
             return True
         except Exception:
             return False

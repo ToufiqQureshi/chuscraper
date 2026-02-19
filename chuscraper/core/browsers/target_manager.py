@@ -154,10 +154,33 @@ class TargetManagerMixin(BrowserMixin):
                 if self.config.stealth:
                     from .. import stealth
 
-                    scripts = stealth.get_stealth_scripts(self.config)
+                    # Pass detected browser version for coherence
+                    browser_version = getattr(self, "version", None)
+                    scripts, profile = stealth.get_stealth_scripts(self.config, browser_version)
 
                     # Only apply to 'page' to avoid crashing on short-lived iframes/workers
                     if target_info.type_ == "page":
+                        # Apply CDP overrides for new targets
+                        if self.config.user_agent:
+                            await self.connection.send(
+                                cdp.emulation.set_user_agent_override(
+                                    user_agent=self.config.user_agent,
+                                    accept_language=self.config.lang or "en-US",
+                                    platform=profile.platform
+                                ),
+                                session_id=session_id
+                            )
+
+                        await self.connection.send(
+                            cdp.emulation.set_device_metrics_override(
+                                width=profile.screen_width,
+                                height=profile.screen_height,
+                                device_scale_factor=1,
+                                mobile=False
+                            ),
+                            session_id=session_id
+                        )
+
                         for script in scripts:
                             await self.connection.send(
                                 cdp.page.add_script_to_evaluate_on_new_document(
