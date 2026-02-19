@@ -189,9 +189,10 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
         if not connect_existing:
             self._process = util._start_process(exe, params, is_posix)
             self._process_pid = self._process.pid
+            # Register immediately to ensure cleanup if crash happens during startup
+            util.get_registered_instances().add(self)
 
         self._http = HTTPApi((self.config.host, self.config.port))
-        util.get_registered_instances().add(self)
         await asyncio.sleep(self._config.browser_connection_timeout)
         
         for _ in range(self._config.browser_connection_max_tries):
@@ -216,11 +217,16 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             self._connection.handlers[cdp.target.AttachedToTarget] = [self._handle_attached_to_target]
             
             await self._connection.send(cdp.target.set_discover_targets(discover=True))
-            await self._connection.send(
-                cdp.target.set_auto_attach(
-                    auto_attach=True, wait_for_debugger_on_start=True, flatten=True
-                )
-            )
+            
+            # Auto-attach can cause stability issues on Windows with many service workers
+            # try:
+            #     await self._connection.send(
+            #         cdp.target.set_auto_attach(
+            #             auto_attach=True, wait_for_debugger_on_start=True, flatten=True
+            #         )
+            #     )
+            # except Exception: 
+            #     pass
         await self.update_targets()
         
         for t in self.tabs:
@@ -251,14 +257,29 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
 
         if self._process:
             try:
-                if self._process.poll() is None:
-                    self._process.terminate()
-                    await asyncio.to_thread(self._process.wait, timeout=3.0)
-            except Exception:
-                if self._process:
+                import sys
+                import subprocess
+                
+                # Force kill on Windows using taskkill to ensure no lingering processes
+                if sys.platform == "win32":
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(self._process.pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                else:
                     self._process.kill()
+                    
+                await asyncio.to_thread(self._process.wait)
+            except Exception:
+                # If process is already gone
+                pass
             self._process = None
             self._process_pid = None
+            
+        # Unregister from global list to avoid double cleanup
+        util.get_registered_instances().discard(self)
 
         if self._local_proxy:
             try:

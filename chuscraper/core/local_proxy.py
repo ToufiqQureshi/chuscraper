@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 class LocalAuthProxy:
     def __init__(self, upstream_proxy_url: str):
+        if "://" not in upstream_proxy_url:
+            upstream_proxy_url = "http://" + upstream_proxy_url
         self.upstream = urlparse(upstream_proxy_url)
         self.upstream_host = self.upstream.hostname
         self.upstream_port = self.upstream.port or 80
@@ -36,15 +38,17 @@ class LocalAuthProxy:
 
     async def start(self) -> int:
         """Starts the local proxy server and returns the port."""
-        # Find a free port
-        sock = socket.socket()
-        sock.bind(('127.0.0.1', 0))
-        self.local_port = sock.getsockname()[1]
-        sock.close()
-
+        # Use port 0 to let asyncio/OS choose a free port atomically
         self.server = await asyncio.start_server(
-            self.handle_client, '127.0.0.1', self.local_port
+            self.handle_client, '127.0.0.1', 0
         )
+        
+        # Retrieve the actual port assigned
+        if self.server.sockets:
+            self.local_port = self.server.sockets[0].getsockname()[1]
+        else:
+             raise RuntimeError("Failed to start local proxy: No sockets assigned")
+
         logger.info(f"Local Proxy started on 127.0.0.1:{self.local_port} -> {self.upstream_host}:{self.upstream_port}")
         return self.local_port
 

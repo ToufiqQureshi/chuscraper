@@ -224,6 +224,7 @@ class DomMixin(TabMixin):
         returns element which match the given text.
         """
         text = text.strip()
+        await self.send(cdp.dom.enable())
         doc = await self.send(cdp.dom.get_document(-1, True))
         search_id, nresult = await self.send(cdp.dom.perform_search(text, True))
         if nresult:

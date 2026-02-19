@@ -88,6 +88,14 @@ class BrowserContextMixin(BrowserMixin):
 
     async def _apply_stealth_and_timezone(self, tab_obj: typing.Any) -> None:
         """Applies stealth scripts, timezone, and locale overrides to a tab."""
+        # 0. Enable core domains
+        try:
+            await tab_obj.send(cdp.dom.enable())
+            await tab_obj.send(cdp.runtime.enable())
+            await tab_obj.send(cdp.page.enable())
+        except Exception as e:
+            logger.debug(f"Failed to enable domains for {tab_obj}: {e}")
+
         # 1. Setup Timezone
         if self.config.timezone:
             try:

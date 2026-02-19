@@ -25,6 +25,38 @@ from .config import BrowserType, Config
 
 __registered__instances__: Set[Browser] = set()
 
+import atexit
+import sys
+
+def cleanup_registered_browsers():
+    """
+    Force kill all registered browser processes on exit.
+    This ensures no orphan chrome processes are left behind.
+    """
+    import subprocess
+    
+    for browser in list(__registered__instances__):
+        # We access private attributes directly because this is a final cleanup
+        # and we want to be as robust as possible
+        pid = getattr(browser, "_process_pid", None)
+        
+        if pid:
+            try:
+                if sys.platform == "win32":
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                else:
+                    import os
+                    os.kill(pid, 9) # SIGKILL
+            except Exception:
+                pass
+
+atexit.register(cleanup_registered_browsers)
+
 logger = logging.getLogger(__name__)
 T = typing.TypeVar("T")
 
@@ -135,12 +167,17 @@ def free_port() -> int:
     Determines a free port using sockets.
     """
     import socket
+    import time
+    import random
 
     free_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     free_socket.bind(("127.0.0.1", 0))
     free_socket.listen(5)
     port: int = free_socket.getsockname()[1]
     free_socket.close()
+    
+    # Add a small random delay to desynchronize multiple processes asking for ports simultaneously
+    time.sleep(random.uniform(0.01, 0.05))
     return port
 
 

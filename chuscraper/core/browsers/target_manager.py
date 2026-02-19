@@ -82,6 +82,11 @@ class TargetManagerMixin(BrowserMixin):
 
             elif isinstance(event, cdp.target.TargetCreated):
                 target_info = event.target_info
+                
+                # CRITICAL FIX: Ignore iframes/workers to prevent 404 connection crashes
+                if target_info.type_ != "page":
+                    return
+
                 from ..tab import Tab
 
                 new_target = Tab(
@@ -95,9 +100,11 @@ class TargetManagerMixin(BrowserMixin):
                 )
 
                 self.browser._targets.append(new_target)
-
-                # Apply stealth/timezone to new target
-                asyncio.create_task(self.browser._apply_stealth_and_timezone(new_target))
+                
+                # Apply stealth/timezone to relevant targets only
+                # Restricting to 'page' only to avoid crashing on short-lived iframes (ads/trackers)
+                if target_info.type_ == "page":
+                    asyncio.create_task(self.browser._apply_stealth_and_timezone(new_target))
 
                 logger.debug(
                     "target #%d created => %s", len(self.browser._targets), new_target
@@ -149,18 +156,8 @@ class TargetManagerMixin(BrowserMixin):
 
                     scripts = stealth.get_stealth_scripts(self.config)
 
-                    if target_info.type_ in [
-                        "worker",
-                        "service_worker",
-                        "shared_worker",
-                    ]:
-                        for script in scripts:
-                            await self.connection.send(
-                                cdp.runtime.evaluate(expression=script),
-                                session_id=session_id,
-                            )
-
-                    elif target_info.type_ in ["page", "iframe"]:
+                    # Only apply to 'page' to avoid crashing on short-lived iframes/workers
+                    if target_info.type_ == "page":
                         for script in scripts:
                             await self.connection.send(
                                 cdp.page.add_script_to_evaluate_on_new_document(
@@ -168,15 +165,19 @@ class TargetManagerMixin(BrowserMixin):
                                 ),
                                 session_id=session_id,
                             )
-
-                # Resume execution
-                await self.connection.send(
-                    cdp.runtime.run_if_waiting_for_debugger(), session_id=session_id
-                )
+                    # We skip 'iframe', 'worker', 'service_worker' to prevent 404s and hangs
             except Exception as e:
                 logger.error(
                     f"Failed to handle attached target {target_info.target_id}: {e}"
                 )
+            finally:
+                # ALWAYS RESUME execution, otherwise the tab hangs forever
+                try:
+                    await self.connection.send(
+                        cdp.runtime.run_if_waiting_for_debugger(), session_id=session_id
+                    )
+                except Exception:
+                    pass
 
     async def _get_targets(self) -> typing.List[cdp.target.TargetInfo]:
         if not self.connection:

@@ -237,39 +237,17 @@ class Config:
 
         if self.proxy:
              # Always add proxy-server arg as a reliable fallback.
-             # The extension will handle Auth (onAuthRequired) and can also set settings,
-             # but this ensures the browser TRIES to use the proxy from the start.
              import urllib.parse
-             parsed = urllib.parse.urlparse(self.proxy)
-             
-             host = parsed.hostname
-             port = parsed.port
-             if not port:
-                port = 80 if parsed.scheme == "http" else 443
-                
-             # Construct host:port string
-             
-             # If it wasn't an auth proxy (no user/pass), we would just use self.proxy
-             # But since we parsed it, let's reconstruct clean host:port
-             # If original was just host:port, parsed.hostname is None (schemeless) or it works.
-             
-             if not (parsed.hostname): 
-                 # Handle case where user passed "host:port" without scheme
-                 # urllib might parse it differently. 
-                 # But self.proxy was normalized to start with http:// in __init__ if needed.
-                 # Let's rely on self.proxy handling in __init__
-                 pass
-
-             # If we have an authenticated proxy, we stripped user:pass for the flag
-             # If unauthenticated, it's just the proxy string
-             
-             # Safest: Re-parse using the logic we know works
-             if "://" not in self.proxy:
-                  self.proxy = "http://" + self.proxy # Should have been done in init but safe to repeat or check
-             
-             p = urllib.parse.urlparse(self.proxy)
+             temp_proxy = self.proxy
+             if "://" not in temp_proxy:
+                 temp_proxy = "http://" + temp_proxy
+                 
+             p = urllib.parse.urlparse(temp_proxy)
              if p.hostname:
-                 args.append(f"--proxy-server={p.hostname}:{p.port}")
+                 if p.port:
+                    args.append(f"--proxy-server={p.hostname}:{p.port}")
+                 else:
+                    args.append(f"--proxy-server={p.hostname}")
 
         return args
 
