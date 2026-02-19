@@ -104,7 +104,7 @@ class BaseFetchInterception:
         try:
             await self.tab.send(cdp.fetch.disable())
         except Exception:
-            pass  # Ignore errors during teardown
+            pass
 
     async def reset(self) -> None:
         """

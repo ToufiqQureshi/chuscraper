@@ -97,41 +97,27 @@ def cleanup_registered_browsers():
     import subprocess
     import os
     
-    # We use a simple file log for atexit debugging because standard logging might be closed
-    try:
-        # Only log if there are actually instances to clean
-        if not __registered__instances__:
-            return
+    # Only log if there are actually instances to clean
+    if not __registered__instances__:
+        return
 
-        with open("chuscraper_cleanup.log", "a") as f:
-            import datetime
-            f.write(f"\n[{datetime.datetime.now()}] atexit cleanup started. Instances: {len(__registered__instances__)}\n")
-            
-            for browser in list(__registered__instances__):
-                pid = getattr(browser, "_process_pid", None)
-                if pid:
-                    f.write(f"  Attempting to kill PID: {pid}\n")
-                    try:
-                        if sys.platform == "win32":
-                            # Use strict filtering to avoid killing wrong processes
-                            # Although Job Objects handle this, we keep this as backup
-                            # Removed /T to avoid potential collateral damage to unrelated process trees
-                            subprocess.run(
-                                ["taskkill", "/F", "/PID", str(pid)],
-                                stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL,
-                                creationflags=subprocess.CREATE_NO_WINDOW
-                            )
-                        else:
-                            import signal
-                            os.kill(pid, signal.SIGKILL)
-                        f.write(f"  PID {pid} kill signal sent.\n")
-                    except Exception as e:
-                        f.write(f"  Error killing PID {pid}: {e}\n")
-            
-            f.write("atexit cleanup finished.\n")
-    except Exception:
-        pass
+    for browser in list(__registered__instances__):
+        pid = getattr(browser, "_process_pid", None)
+        if pid:
+            try:
+                if sys.platform == "win32":
+                    # Added /T (Tree kill) to ensure all sub-processes (gpu-process, etc) are gone
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(pid)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                else:
+                    import signal
+                    os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
 
 atexit.register(cleanup_registered_browsers)
 
