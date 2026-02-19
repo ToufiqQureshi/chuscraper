@@ -13,7 +13,7 @@ Getting Chuscraper up and running is straightforward.
 Run the following command in your terminal:
 
 ```bash
-pip install chuscraper
+pip install chuscraper==0.19.3
 ```
 
 Or if you are using `uv` or `poetry`:

@@ -1,62 +1,55 @@
 # Core Concepts
 
-Understanding the hierarchy of objects in Chuscraper is key to mastering it.
+Chuscraper follows a clean, hierarchical structure. Each layer is enhanced with specialized **Mixins** to keep the API powerful yet easy to navigate.
 
 ## The Hierarchy
 
-1.  **Browser**: The main entry point. Represents the Chrome process.
-2.  **Tab**: Represents a single open tab (or page). This is where 90% of your work happens.
-3.  **Element**: Represents a DOM node on the page.
+1.  **Browser**: The engine. Manages the Chrome process and global state.
+2.  **Tab**: The portal. Represents a single page/tab where most automation happens.
+3.  **Element**: The node. Represents specific DOM elements for interaction.
 
-## Browser
+## 1. Browser
 
-The `Browser` object manages the Chrome process and the connection to it.
-
-```python
-browser = await cs.start()
-```
-
-### Key Methods
-
--   `browser.tabs`: A list of all open `Tab` objects.
--   `browser.main_tab`: The currently active or first tab.
--   `browser.new_tab(url)`: Open a new tab.
--   `browser.close_tab(tab)`: Close a specific tab.
--   `browser.stop()`: Close the browser and cleanup.
-
-## Tab
-
-The `Tab` object is your window into a specific page. You can navigate, find elements, and execute JavaScript.
+The `Browser` object is your entry point. It manages the underlying connection and coordinates tabs.
 
 ```python
-tab = browser.main_tab
-await tab.goto("https://google.com")
+# Start a browser instance
+browser = await cs.start(stealth=True)
 ```
 
-### Navigation
+### Modular Attributes
+Thanks to its Mixin architecture, the `Browser` object provides easy access to:
+-   `browser.tabs`: List of all open `Tab` objects.
+-   `browser.cookies`: Integrated `CookieJar` for session management.
+-   `browser.get(url)`: Shortcut to navigate in the main tab or open a new one.
 
--   `await tab.goto(url)`: Navigate to a URL.
--   `await tab.wait(seconds)`: Pause execution (smart sleep).
--   `await tab.back()`: Go back in history.
--   `await tab.reload()`: Reload the page.
+## 2. Tab
 
-### Execution
+The `Tab` object is where the magic happens. It inherits from Mixins like `NavigationMixin`, `NetworkMixin`, and `ScreenshotMixin`.
 
--   `await tab.evaluate("document.title")`: Run JavaScript and get the result.
--   `await tab.js("console.log('hello')")`: strict alias for evaluate.
+```python
+tab = await browser.get("https://google.com")
 
-## Element
+# New properties for easy access
+print(f"I am at: {tab.url}")
+```
 
-An `Element` represents a node in the HTML. You get elements by using selectors on a `Tab`.
+### Key Capabilities
+-   **Navigation**: `await tab.get(url)`, `await tab.back()`, `await tab.reload()`.
+-   **Evaluation**: Execute JS with `await tab.evaluate("window.innerWidth")`.
+-   **Waiting**: Use `await tab.wait(2)` for smart stability pauses.
+
+## 3. Element
+
+`Element` objects are returned by `tab.select()` or `tab.find()`. They are modularized into `State`, `Interaction`, and `Query` Mixins.
 
 ```python
 btn = await tab.select("button#submit")
 await btn.click()
 ```
 
-### Key Methods
-
--   `await element.click()`: Click the element.
--   `await element.send_keys("text")`: Type text.
--   `await element.get_attribute("href")`: Get HTML attribute.
--   `await element.text_content`: Get the inner text (property).
+### Common Actions
+-   `await element.click()`: Moves mouse humanly and clicks.
+-   `await element.send_keys("text")`: Types with natural delays.
+-   `await element.text()`: Returns the visible text content (async).
+-   `element.attrs`: Access all HTML attributes directly.

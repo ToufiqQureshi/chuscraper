@@ -1,72 +1,69 @@
 # Interactions
 
-Once you have an `Element` or a `Tab`, you want to interact with it.
+Interacting with a page in Chuscraper is built to feel natural and bypass bot detection.
 
 ## Clicking
+
+Chuscraper doesn't just "fire" a click event; it simulates a human moving the mouse and pressing the button.
 
 ```python
 btn = await tab.find("Submit")
 await btn.click()
 ```
 
-### Advanced Clicking
-You can simulate specific mouse events if `click()` is detected or blocked.
-```python
-# Mouse move and click
-await tab.mouse_click(x=100, y=200)
-
-# Right click
-await tab.mouse_click(100, 200, button="right")
-```
-
 ## Typing & Input
 
-To type into an input field:
+Typing is also humanized with slight random delays between keystrokes.
 
 ```python
-inp = await tab.select("input#search")
-await inp.send_keys("Hello World")
-```
+search = await tab.select("input[name='q']")
+await search.send_keys("best scraping library", clear=True)
 
-### Special Keys
-To press Enter, Tab, etc., use the keys directly (newline often works for Enter in `send_keys`):
-
-```python
-# Type and press Enter
-await inp.send_keys("Search Query\n")
+# Pressing Enter
+await tab.send_keys(cs.SpecialKeys.ENTER)
 ```
 
 ## Scrolling
 
-Chuscraper has built-in smooth scrolling to simulate human behavior.
+Use scrolling to reveal lazy-loaded content or to look more "human."
 
 ```python
-# Scroll down 25% of the page
-await tab.scroll_down(amount=25)
+# Scroll down a bit (percentage based)
+await tab.scroll_down(25)
 
-# Scroll to specific element
-el = await tab.find("Footer Link")
-await el.scroll_into_view()
+# Scroll a specific element into view
+footer = await tab.find("Terms of Service")
+await footer.scroll_into_view()
 ```
 
-## Screenshots
+## Navigation Properties
 
-You can take screenshots of the specific element or the whole page.
+The `Tab` object has built-in properties to quickly check its state.
 
 ```python
-# Element screenshot
-btn = await tab.select("#chart")
-await btn.save_screenshot("chart.png")
-
-# Page screenshot
-await tab.save_screenshot("full_page.png")
-await tab.save_screenshot("full_page_scrolled.png", full_page=True)
+print(f"Current URL: {tab.url}")
+print(f"Current Title: {await tab.title()}")
 ```
 
-## Downloading Files
-Chuscraper handles downloads automatically if you set a download path, or you can use `download_file`.
+## Screenshots & Files
 
 ```python
-# Manual download
-await tab.download_file("https://example.com/report.pdf", "my_report.pdf")
+# Save current view
+await tab.save_screenshot("debug.png")
+
+# Full page (includes scrolling)
+await tab.save_screenshot("full.png", full_page=True)
+
+# Download a file directly
+await tab.download_file("https://site.com/data.zip", "local.zip")
+```
+
+## Tab Management
+
+```python
+# Get a list of all open tabs
+for t in browser.tabs:
+    print(f"Tab at: {t.url}")
+    if "logout" in t.url:
+        await t.close()
 ```

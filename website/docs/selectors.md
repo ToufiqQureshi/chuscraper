@@ -1,78 +1,58 @@
 # Selectors & Locators
 
-Finding elements reliably is the most important part of scraping. Chuscraper provides a versatile finding engine.
+Finding elements reliably is the heart of automation. Chuscraper provides a smart finding engine that "guesses" what you want.
 
-## The `find` vs `select` Philosophy
+## The Smart Locator: `find`
 
--   **`select(selector)`**: strictly expects a CSS selector. Returns the *first* match.
--   **`select_all(selector)`**: Returns *all* matches as a list.
--   **`find(text_or_selector)`**: The **smart** locator. It tries to guess if you mean text or CSS.
-
-## Smart Finding (`find`)
-
-The `find` method is unique to Chuscraper. It accepts a string and tries to match it against:
-1.  CSS Selectors
-2.  Text Content (exact or partial)
-3.  Attributes (like placeholder, title)
+The `find()` method is the **recommended** way to locate elements. It accepts a string and automatically tries to match it against:
+1.  **Text Content** (e.g., "Login", "Welcome")
+2.  **HTML Attributes** (e.g., placeholders, aria-labels)
+3.  **CSS Selectors** (e.g., `.btn-primary`)
 
 ```python
-# Finds by text "Login"
-btn = await tab.find("Login") 
+# Finds the button with text "Login"
+login_btn = await tab.find("Login") 
 
-# Finds by partial text if unique
-btn = await tab.find("Log") 
+# Finds the input with placeholder "Search"
+search_box = await tab.find("Search")
 
-# Finds by CSS if it looks like CSS
-btn = await tab.find(".login-btn")
+# Finds by CSS if it looks like one
+header = await tab.find("#header")
 ```
 
-### `best_match=True`
-
-When searching by text, websites often have multiple elements with similar text (e.g. "Login" in header and footer). `best_match=True` uses heuristics (like text length closeness) to pick the most likely candidate.
+### Why use `best_match=True`?
+If multiple elements have similar text (e.g., "Sign In" vs "Signing In"), `best_match` picks the one closest in length to your query.
 
 ```python
-# Webpage has "Login Now" and "Login to your account"
-# This will pick "Login Now" because it's closer in length to "Login"
-btn = await tab.find("Login", best_match=True)
+btn = await tab.find("Sign In", best_match=True)
 ```
 
-## CSS Selectors (`select`)
+## CSS & XPath
 
-Standard CSS selectors. Fast and precise.
+If you need surgical precision, use standard selectors:
 
 ```python
-# ID
-await tab.select("#main")
+# CSS Selector
+el = await tab.select("div.content > p.lead")
 
-# Class
-await tab.select(".nav-item")
+# CSS Select all matching items
+items = await tab.select_all("ul.results li")
 
-# Attribute
-await tab.select("input[name='email']")
-
-# Hierarchy
-await tab.select("div.content > p")
+# XPath support
+el = await tab.xpath("//h1[contains(text(), 'Success')]")
 ```
 
-## Waiting for Elements
+## Waiting for Content
 
-Don't use `time.sleep()`. Use `wait_for` to wait until an element appears in the DOM.
-
-```python
-# Blocks until the element appears or timeout (default 10s)
-el = await tab.wait_for(".dynamic-content")
-
-# Wait for text to appear
-el = await tab.wait_for(text="Submission Successful")
-```
-
-### Timeout
-
-You can customize the timeout:
+Always use `wait_for` to handle dynamic loading. It blocks execution until the element is ready.
 
 ```python
-try:
-    el = await tab.wait_for("#slow-loader", timeout=30)
-except asyncio.TimeoutError:
-    print("Element didn't appear!")
+# Wait for a selector to appear
+await tab.wait_for(".result-list")
+
+# Wait for specific text to appear
+await tab.wait_for(text="Completed Successfully")
+
+# Custom timeout (default 10s)
+await tab.wait_for("#slow-element", timeout=30)
 ```

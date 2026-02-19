@@ -5,44 +5,42 @@
 ## Why Chuscraper?
 
 - **🚀 Blazing Fast**: Communicates directly with the browser via CDP, skipping the WebDriver overhead.
-- **🥷 Stealth by Design**: Built-in anti-detection mechanisms to pass bot checks (Cloudflare, Akamai, etc.).
-- **🤖 AI Powered**: Integrated LLM and Vision capabilities for intelligent extraction and self-healing selectors.
-- **⚡ Async First**: Built on `asyncio` for high concurrency and performance.
+- **🥷 Stealth by Design**: Built-in anti-detection mechanisms to pass bot checks (Cloudflare, Akamai, etc.) out of the box.
+- **⚡ Async First**: Built on `asyncio` for high concurrency and modern performance.
+- **🧩 Modular & Easy**: New Mixin-based architecture makes it powerful yet simple to use.
 
 ## Key Features
 
 | Feature | Description |
 | :--- | :--- |
 | **Direct CDP** | Full control over the browser protocol. |
-| **Tab Management** | Easy multi-tab handling with efficient context switching. |
+| **Tab Management** | Easy multi-tab handling with `browser.tabs` and `browser.get()`. |
 | **Smart Selectors** | CSS, XPath, and **Text** selectors with "best match" fuzzy logic. |
-| **Undetected** | Patches `navigator`, `webdriver`, `WebGL`, and more automatically. |
-| **Network Control** | Intercept requests, block URLs, and manage proxies effortlessly. |
+| **Undetected** | Automatic patching of `navigator`, `webdriver`, `WebGL`, and more. |
+| **Network Control** | Intercept requests, block URLs, and manage cookies effortlessly. |
 
-## Getting Started
-
-Check out the [Installation](installation.md) guide to get set up, or jump straight into [Your First Scraper](first_script.md).
-
-## Example
+## Quick Example
 
 ```python
 import asyncio
-import chuscraper as zd
+import chuscraper as cs
 
 async def main():
-    # Start browser with stealth enabled
-    async with await zd.start(stealth=True) as browser:
+    # Start browser with stealth enabled (undiscovered mode)
+    async with await cs.start(stealth=True) as browser:
         
-        # Navigate to a site
-        await browser.goto('https://example.com')
+        # Navigate simply
+        tab = await browser.get('https://example.com')
         
-        # Extract data easily
-        title = await browser.main_tab.title()
-        heading = await browser.main_tab.select_text("h1")
+        # Extract data in one line
+        title = await tab.title()
+        heading = await tab.find("Example Domain")
         
         print(f"Site: {title}")
-        print(f"Heading: {heading}")
+        print(f"Heading Text: {await heading.text()}")
 
 if __name__ == '__main__':
     asyncio.run(main())
 ```
+
+Check out the [Installation](installation.md) guide to get set up, or dive into the [Quickstart](quickstart.md).
