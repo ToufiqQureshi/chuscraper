@@ -27,12 +27,14 @@ class BaseFetchInterception:
         tab: Connection,
         url_pattern: str,
         request_stage: RequestStage,
-        resource_type: ResourceType,
+        resource_type: typing.Optional[ResourceType] = None,
+        resource_types: typing.Optional[typing.List[ResourceType]] = None,
     ):
         self.tab = tab
         self.url_pattern = url_pattern
         self.request_stage = request_stage
         self.resource_type = resource_type
+        self.resource_types = resource_types
         self.response_future: asyncio.Future[cdp.fetch.RequestPaused] = asyncio.Future()
 
     async def _response_handler(self, event: cdp.fetch.RequestPaused) -> None:
@@ -64,17 +66,34 @@ class BaseFetchInterception:
         await self._teardown()
 
     async def _setup(self) -> None:
-        await self.tab.send(
-            cdp.fetch.enable(
-                [
+        patterns = []
+        if self.resource_type:
+            patterns.append(
+                RequestPattern(
+                    url_pattern=self.url_pattern,
+                    request_stage=self.request_stage,
+                    resource_type=self.resource_type,
+                )
+            )
+        if self.resource_types:
+            for rt in self.resource_types:
+                patterns.append(
                     RequestPattern(
                         url_pattern=self.url_pattern,
                         request_stage=self.request_stage,
-                        resource_type=self.resource_type,
+                        resource_type=rt,
                     )
-                ]
+                )
+        if not patterns:
+            patterns.append(
+                RequestPattern(
+                    url_pattern=self.url_pattern,
+                    request_stage=self.request_stage,
+                    resource_type=None,
+                )
             )
-        )
+
+        await self.tab.send(cdp.fetch.enable(patterns))
         self.tab.enabled_domains.append(
             cdp.fetch
         )  # trick to avoid another `fetch.enable` call by _register_handlers

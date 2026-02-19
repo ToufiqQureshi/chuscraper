@@ -564,7 +564,8 @@ class Tab(
         self,
         url_pattern: str,
         request_stage: RequestStage,
-        resource_type: ResourceType,
+        resource_type: Optional[ResourceType] = None,
+        resource_types: Optional[List[ResourceType]] = None,
     ) -> BaseFetchInterception:
         """
         Sets up interception for network requests matching a URL pattern, request stage, and resource type.
@@ -572,12 +573,15 @@ class Tab(
         :param url_pattern: URL string or regex pattern to match requests.
         :param request_stage: Stage of the request to intercept (e.g., request, response).
         :param resource_type: Type of resource (e.g., Document, Script, Image).
+        :param resource_types: List of resource types to intercept.
         :return: A BaseFetchInterception instance for further configuration or awaiting intercepted requests.
         :rtype: BaseFetchInterception
 
         Use this to block, modify, or inspect network traffic for specific resources during browser automation.
         """
-        return BaseFetchInterception(self, url_pattern, request_stage, resource_type)
+        return BaseFetchInterception(
+            self, url_pattern, request_stage, resource_type, resource_types
+        )
 
     async def download_file(
         self, url: str, filename: Optional[PathLike] = None
