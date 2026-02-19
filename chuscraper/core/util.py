@@ -8,12 +8,11 @@ import typing
 from asyncio import AbstractEventLoop
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Set, Union
+import ctypes
+import sys
+import atexit
 
 from deprecated import deprecated
-
-# import chuscraper
-
-# from .element import Element
 
 if typing.TYPE_CHECKING:
     from .browser import Browser
@@ -25,8 +24,70 @@ from .config import BrowserType, Config
 
 __registered__instances__: Set[Browser] = set()
 
-import atexit
-import sys
+logger = logging.getLogger(__name__)
+T = typing.TypeVar("T")
+
+# Windows Job Object logic
+_job_handles = []
+
+if sys.platform == "win32":
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+
+    def _assign_to_job_object(process_handle: int) -> Any:
+        try:
+            job = ctypes.windll.kernel32.CreateJobObjectW(None, None)
+            if not job:
+                return None
+
+            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+
+            res = ctypes.windll.kernel32.SetInformationJobObject(
+                job,
+                9, # JobObjectExtendedLimitInformation
+                ctypes.pointer(info),
+                ctypes.sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)
+            )
+
+            if res:
+                if ctypes.windll.kernel32.AssignProcessToJobObject(job, process_handle):
+                    return job
+        except Exception as e:
+            logger.debug(f"Failed to assign process to job object: {e}")
+        return None
 
 def cleanup_registered_browsers():
     """
@@ -38,6 +99,10 @@ def cleanup_registered_browsers():
     
     # We use a simple file log for atexit debugging because standard logging might be closed
     try:
+        # Only log if there are actually instances to clean
+        if not __registered__instances__:
+            return
+
         with open("chuscraper_cleanup.log", "a") as f:
             import datetime
             f.write(f"\n[{datetime.datetime.now()}] atexit cleanup started. Instances: {len(__registered__instances__)}\n")
@@ -48,9 +113,11 @@ def cleanup_registered_browsers():
                     f.write(f"  Attempting to kill PID: {pid}\n")
                     try:
                         if sys.platform == "win32":
-                            # Added /T for Tree kill to ensure all sub-processes are gone
+                            # Use strict filtering to avoid killing wrong processes
+                            # Although Job Objects handle this, we keep this as backup
+                            # Removed /T to avoid potential collateral damage to unrelated process trees
                             subprocess.run(
-                                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                                ["taskkill", "/F", "/PID", str(pid)],
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL,
                                 creationflags=subprocess.CREATE_NO_WINDOW
@@ -67,9 +134,6 @@ def cleanup_registered_browsers():
         pass
 
 atexit.register(cleanup_registered_browsers)
-
-logger = logging.getLogger(__name__)
-T = typing.TypeVar("T")
 
 
 async def start(
@@ -89,6 +153,10 @@ async def start(
     proxy: Optional[str] = None,
     stealth: Optional[bool] = False,
     timezone: Optional[str] = None,
+    logging: Optional[bool] = False,
+    retry_enabled: Optional[bool] = False,
+    retry_timeout: Optional[float] = 10.0,
+    retry_count: Optional[int] = 3,
     **kwargs: Any,
 ) -> Browser:
     """
@@ -140,6 +208,10 @@ async def start(
             proxy=proxy,
             stealth=stealth,
             timezone=timezone,
+            logging=logging,
+            retry_enabled=retry_enabled,
+            retry_timeout=retry_timeout,
+            retry_count=retry_count,
             **kwargs,
         )
     from .browser import Browser
@@ -390,13 +462,25 @@ def _start_process(
 
     :return: An instance of `subprocess.Popen`.
     """
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         [str(exe)] + params,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         close_fds=is_posix,
     )
+
+    # Assign to Job Object on Windows
+    if sys.platform == "win32":
+        job = _assign_to_job_object(int(proc._handle)) # type: ignore
+        if job:
+            # Attach handle to process object so it can be closed later if needed
+            # We also keep it in a global list as a safety net against GC if needed,
+            # though handles aren't GC'd. But primarily we want it attached.
+            # actually, let's just attach it.
+            proc._job_handle = job
+
+    return proc
 
 
 async def _read_process_stderr(process: subprocess.Popen[bytes], n: int = 2**16) -> str:

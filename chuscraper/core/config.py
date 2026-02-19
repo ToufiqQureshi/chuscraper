@@ -53,6 +53,10 @@ class Config:
         stealth: Optional[bool] = False,
         stealth_options: Optional[Dict[str, bool]] = None,
         timezone: Optional[str] = None,
+        logging: Optional[bool] = False,
+        retry_enabled: Optional[bool] = False,
+        retry_timeout: float = 10.0,
+        retry_count: int = 3,
         **kwargs: Any,
     ):
         """
@@ -60,6 +64,10 @@ class Config:
         ...
         :param stealth: enables stealth mode
         :param stealth_options: granular control over stealth patches
+        :param logging: enables basic logging
+        :param retry_enabled: enables automatic retries
+        :param retry_timeout: timeout for retries
+        :param retry_count: number of retries
         :param kwargs:
         """
 
@@ -104,6 +112,10 @@ class Config:
             "patch_chrome_runtime": True,
         }
         self.timezone = timezone
+        self.logging = logging
+        self.retry_enabled = retry_enabled
+        self.retry_timeout = retry_timeout
+        self.retry_count = retry_count
 
         # ... (rest of the logic)
         if is_posix and is_root() and sandbox:
@@ -225,7 +237,7 @@ class Config:
             args.append("--no-sandbox")
         if self.host:
             args.append("--remote-debugging-host=%s" % self.host)
-        if self.port:
+        if self.port is not None:
             args.append("--remote-debugging-port=%s" % self.port)
         if self.disable_webrtc:
             args += [
