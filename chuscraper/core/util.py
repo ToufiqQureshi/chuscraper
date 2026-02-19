@@ -34,26 +34,37 @@ def cleanup_registered_browsers():
     This ensures no orphan chrome processes are left behind.
     """
     import subprocess
+    import os
     
-    for browser in list(__registered__instances__):
-        # We access private attributes directly because this is a final cleanup
-        # and we want to be as robust as possible
-        pid = getattr(browser, "_process_pid", None)
-        
-        if pid:
-            try:
-                if sys.platform == "win32":
-                    subprocess.run(
-                        ["taskkill", "/F", "/PID", str(pid)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                else:
-                    import os
-                    os.kill(pid, 9) # SIGKILL
-            except Exception:
-                pass
+    # We use a simple file log for atexit debugging because standard logging might be closed
+    try:
+        with open("chuscraper_cleanup.log", "a") as f:
+            import datetime
+            f.write(f"\n[{datetime.datetime.now()}] atexit cleanup started. Instances: {len(__registered__instances__)}\n")
+            
+            for browser in list(__registered__instances__):
+                pid = getattr(browser, "_process_pid", None)
+                if pid:
+                    f.write(f"  Attempting to kill PID: {pid}\n")
+                    try:
+                        if sys.platform == "win32":
+                            # Added /T for Tree kill to ensure all sub-processes are gone
+                            subprocess.run(
+                                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                creationflags=subprocess.CREATE_NO_WINDOW
+                            )
+                        else:
+                            import signal
+                            os.kill(pid, signal.SIGKILL)
+                        f.write(f"  PID {pid} kill signal sent.\n")
+                    except Exception as e:
+                        f.write(f"  Error killing PID {pid}: {e}\n")
+            
+            f.write("atexit cleanup finished.\n")
+    except Exception:
+        pass
 
 atexit.register(cleanup_registered_browsers)
 
