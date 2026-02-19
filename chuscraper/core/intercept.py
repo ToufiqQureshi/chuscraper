@@ -27,12 +27,14 @@ class BaseFetchInterception:
         tab: Connection,
         url_pattern: str,
         request_stage: RequestStage,
-        resource_type: ResourceType,
+        resource_type: typing.Optional[ResourceType] = None,
+        resource_types: typing.Optional[typing.List[ResourceType]] = None,
     ):
         self.tab = tab
         self.url_pattern = url_pattern
         self.request_stage = request_stage
         self.resource_type = resource_type
+        self.resource_types = resource_types
         self.response_future: asyncio.Future[cdp.fetch.RequestPaused] = asyncio.Future()
 
     async def _response_handler(self, event: cdp.fetch.RequestPaused) -> None:
@@ -64,17 +66,64 @@ class BaseFetchInterception:
         await self._teardown()
 
     async def _setup(self) -> None:
-        await self.tab.send(
-            cdp.fetch.enable(
-                [
+        patterns = []
+
+        def _get_resource_type(rt: typing.Any) -> typing.Optional[ResourceType]:
+            if isinstance(rt, ResourceType):
+                return rt
+            elif isinstance(rt, str):
+                try:
+                    # Try to match by value (e.g. "Image")
+                    return ResourceType(rt)
+                except ValueError:
+                    # Try to match by name (e.g. "IMAGE")
+                    try:
+                        return ResourceType[rt.upper()]
+                    except KeyError:
+                        pass
+            elif isinstance(rt, dict):
+                # Try to extract from dict if key exists
+                if "resourceType" in rt:
+                    return _get_resource_type(rt["resourceType"])
+                if "type" in rt:
+                    return _get_resource_type(rt["type"])
+
+            logger.warning(f"Invalid resource type: {rt} (type {type(rt)}). Ignoring.")
+            return None
+
+        if self.resource_type:
+            rt = _get_resource_type(self.resource_type)
+            if rt:
+                patterns.append(
                     RequestPattern(
                         url_pattern=self.url_pattern,
                         request_stage=self.request_stage,
-                        resource_type=self.resource_type,
+                        resource_type=rt,
                     )
-                ]
+                )
+
+        if self.resource_types:
+            for raw_rt in self.resource_types:
+                rt = _get_resource_type(raw_rt)
+                if rt:
+                    patterns.append(
+                        RequestPattern(
+                            url_pattern=self.url_pattern,
+                            request_stage=self.request_stage,
+                            resource_type=rt,
+                        )
+                    )
+
+        if not patterns:
+            patterns.append(
+                RequestPattern(
+                    url_pattern=self.url_pattern,
+                    request_stage=self.request_stage,
+                    resource_type=None,
+                )
             )
-        )
+
+        await self.tab.send(cdp.fetch.enable(patterns))
         self.tab.enabled_domains.append(
             cdp.fetch
         )  # trick to avoid another `fetch.enable` call by _register_handlers
