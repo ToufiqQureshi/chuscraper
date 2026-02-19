@@ -11,6 +11,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 import warnings
+import re
 from typing import List, Tuple, Union, Any
 
 import asyncio_atexit
@@ -117,6 +118,11 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
         self._browser = self  # For BrowserMixin access
         logger.debug("Session object initialized: %s" % vars(self))
 
+        # Setup logging if enabled
+        if getattr(self._config, "logging", False):
+            logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            logger.setLevel(logging.INFO)
+
     @property
     def websocket_url(self) -> str:
         if not self.info:
@@ -147,7 +153,8 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             connect_existing = True
         else:
             self._config.host = "127.0.0.1"
-            self._config.port = util.free_port()
+            # Use 0 to let Chrome pick a port, preventing race conditions
+            self._config.port = 0
 
         if not connect_existing:
             if not pathlib.Path(self._config.browser_executable_path).exists():
@@ -192,7 +199,60 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             # Register immediately to ensure cleanup if crash happens during startup
             util.get_registered_instances().add(self)
 
+            # Robust Port Discovery
+            # We read stderr to find the DevTools listening port if we asked for port 0
+            if self._config.port == 0:
+                found_port = None
+
+                # Function to read lines with timeout
+                async def detect_port():
+                    nonlocal found_port
+                    if self._process.stderr is None:
+                        return
+
+                    while self._process.poll() is None:
+                        try:
+                            line = await asyncio.wait_for(
+                                asyncio.to_thread(self._process.stderr.readline),
+                                timeout=1.0
+                            )
+                            line_str = line.decode('utf-8', errors='ignore')
+
+                            # Log stderr for debugging if needed
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(f"Chrome stderr: {line_str.strip()}")
+
+                            # Look for "DevTools listening on ws://127.0.0.1:12345/..."
+                            match = re.search(r'DevTools listening on ws://.+:(\d+)/', line_str)
+                            if match:
+                                found_port = int(match.group(1))
+                                logger.info(f"Discovered Chrome DevTools port: {found_port}")
+                                return
+                        except asyncio.TimeoutError:
+                            # Continue checking poll status
+                            continue
+                        except Exception as e:
+                            logger.error(f"Error reading Chrome stderr: {e}")
+                            break
+
+                try:
+                    await asyncio.wait_for(detect_port(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    pass
+
+                if found_port:
+                    self._config.port = found_port
+                else:
+                    # Fallback or error? If we can't find the port, connection will likely fail.
+                    # But maybe Chrome started silently? We'll try a fallback check or let test_connection fail.
+                    logger.warning("Could not detect DevTools port from stderr. Connection may fail.")
+                    # If failed, we might want to check if the process is dead
+                    if self._process.poll() is not None:
+                        raise RuntimeError(f"Chrome process died immediately. Return code: {self._process.returncode}")
+
         self._http = HTTPApi((self.config.host, self.config.port))
+
+        # Initial wait for http api
         await asyncio.sleep(self._config.browser_connection_timeout)
         
         for _ in range(self._config.browser_connection_max_tries):
@@ -202,8 +262,12 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
 
         if not self.info:
             if self._process is not None:
-                stderr = await util._read_process_stderr(self._process)
-                logger.info("Browser stderr: %s", stderr)
+                # Try to read any remaining stderr
+                try:
+                    stderr = await util._read_process_stderr(self._process)
+                    logger.info("Browser stderr: %s", stderr)
+                except Exception:
+                    pass
             await self.stop()
             raise Exception("Failed to connect to browser")
 
@@ -218,15 +282,6 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             
             await self._connection.send(cdp.target.set_discover_targets(discover=True))
             
-            # Auto-attach can cause stability issues on Windows with many service workers
-            # try:
-            #     await self._connection.send(
-            #         cdp.target.set_auto_attach(
-            #             auto_attach=True, wait_for_debugger_on_start=True, flatten=True
-            #         )
-            #     )
-            # except Exception: 
-            #     pass
         await self.update_targets()
         
         for t in self.tabs:
@@ -236,6 +291,8 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
 
     async def test_connection(self) -> bool:
         if not self._http:
+            return False
+        if self._config.port == 0:
             return False
         try:
             self.info = ContraDict(await self._http.get("version"), silent=True)
@@ -272,6 +329,14 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
                     self._process.kill()
                     
                 await asyncio.to_thread(self._process.wait)
+
+                # Close Job Object handle on Windows to prevent handle leaks
+                if sys.platform == "win32" and hasattr(self._process, "_job_handle"):
+                    import ctypes
+                    try:
+                        ctypes.windll.kernel32.CloseHandle(self._process._job_handle)
+                    except Exception:
+                        pass
             except Exception:
                 # If process is already gone
                 pass

@@ -19,13 +19,19 @@ def get_stealth_scripts(config: Any) -> list[str]:
     
     # Update config.user_agent to match profile for coherence across headers
     # We use a modernized base UA and inject the profile platform
-    chrome_ver = "144.0.0.0"
-    if profile.os == "Windows":
-        new_ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_ver} Safari/537.36"
-    else:
-        new_ua = f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_ver} Safari/537.36"
     
-    config.user_agent = new_ua
+    # Use a realistic recent stable version instead of future/invalid versions
+    chrome_ver_major = "124"
+    chrome_ver_full = "124.0.6367.119"
+
+    if ua_input:
+        new_ua = ua_input
+    else:
+        if profile.os == "Windows":
+            new_ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_ver_full} Safari/537.36"
+        else:
+            new_ua = f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_ver_full} Safari/537.36"
+        config.user_agent = new_ua
     
     # Session-persistent seed
     seed = getattr(config, '_stealth_seed', random.randint(1, 1000000))
@@ -113,8 +119,8 @@ def get_stealth_scripts(config: Any) -> list[str]:
                 const data = {{
                     brands: [
                         {{ brand: 'Not(A:Brand', version: '99' }},
-                        {{ brand: 'Google Chrome', version: '144' }},
-                        {{ brand: 'Chromium', version: '144' }}
+                        {{ brand: 'Google Chrome', version: '{chrome_ver_major}' }},
+                        {{ brand: 'Chromium', version: '{chrome_ver_major}' }}
                     ],
                     mobile: false,
                     platform: '{profile.os}'
