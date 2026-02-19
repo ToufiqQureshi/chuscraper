@@ -105,15 +105,27 @@ class Connection:
     async def connect(self):
         if self.websocket and not self.closed:
             return
-        try:
-            self.websocket = await websockets.asyncio.client.connect(
-                self.websocket_url, max_size=2**28
-            )
-            self._connected.set()
-            self.recv_task = asyncio.create_task(self._recv_loop())
-        except Exception as e:
-            logger.error(f"Failed to connect to {self.websocket_url}: {e}")
-            raise
+
+        max_retries = 5
+        backoff = 1.0
+
+        for i in range(max_retries):
+            try:
+                self.websocket = await websockets.asyncio.client.connect(
+                    self.websocket_url, max_size=2**28
+                )
+                self._connected.set()
+                self.recv_task = asyncio.create_task(self._recv_loop())
+                return
+            except Exception as e:
+                if i == max_retries - 1:
+                    logger.error(
+                        f"Failed to connect to {self.websocket_url} after {max_retries} attempts: {e}"
+                    )
+                    raise
+                logger.warning(f"Connection failed ({e}), retrying in {backoff}s...")
+                await asyncio.sleep(backoff)
+                backoff *= 2
 
     async def _recv_loop(self):
         try:

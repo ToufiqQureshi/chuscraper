@@ -320,3 +320,30 @@ class DomMixin(TabMixin):
             pass
 
         return None
+
+    async def xpath(self, xpath: str) -> List[Element]:
+        """
+        Evaluate an XPath expression and return matching elements.
+
+        :param xpath: The XPath expression.
+        :return: A list of Element objects.
+        """
+        doc = await self.send(cdp.dom.get_document(-1, True))
+        search_id, result_count = await self.send(cdp.dom.perform_search(xpath, include_user_agent_shadow_dom=True))
+
+        if result_count == 0:
+            return []
+
+        node_ids = await self.send(cdp.dom.get_search_results(search_id, 0, result_count))
+        await self.send(cdp.dom.discard_search_results(search_id))
+
+        elements = []
+        for node_id in node_ids:
+            try:
+                node = util.filter_recurse(doc, lambda n: n.node_id == node_id)
+                if node:
+                    elements.append(element.create(node, self.tab, doc))
+            except Exception:
+                pass
+
+        return elements

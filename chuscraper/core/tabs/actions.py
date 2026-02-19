@@ -3,6 +3,7 @@ from .base import TabMixin
 from typing import TYPE_CHECKING, Literal, Optional, Union
 import typing
 import secrets
+import asyncio
 from ... import cdp
 
 if TYPE_CHECKING:
@@ -159,3 +160,83 @@ class ActionsMixin(TabMixin):
                 user_gesture=True,
             )
         )
+
+    async def scroll_down(self, amount: int = 25, speed: int = 800) -> None:
+        """
+        scrolls down maybe
+
+        :param amount: number in percentage. 25 is a quarter of page, 50 half, and 1000 is 10x the page
+        :param speed: number swipe speed in pixels per second (default: 800).
+        :return:
+        :rtype:
+        """
+        window_id: cdp.browser.WindowID
+        bounds: cdp.browser.Bounds
+        (window_id, bounds) = await self.tab.get_window()
+        height = bounds.height if bounds.height else 0
+
+        await self.send(
+            cdp.input_.synthesize_scroll_gesture(
+                x=0,
+                y=0,
+                y_distance=-(height * (amount / 100)),
+                y_overscroll=0,
+                x_overscroll=0,
+                prevent_fling=True,
+                repeat_delay_ms=0,
+                speed=speed,
+            )
+        )
+        await asyncio.sleep(height * (amount / 100) / speed)
+
+    async def scroll_up(self, amount: int = 25, speed: int = 800) -> None:
+        """
+        scrolls up maybe
+
+        :param amount: number in percentage. 25 is a quarter of page, 50 half, and 1000 is 10x the page
+        :param speed: number swipe speed in pixels per second (default: 800).
+        :return:
+        :rtype:
+        """
+        window_id: cdp.browser.WindowID
+        bounds: cdp.browser.Bounds
+        (window_id, bounds) = await self.tab.get_window()
+        height = bounds.height if bounds.height else 0
+
+        await self.send(
+            cdp.input_.synthesize_scroll_gesture(
+                x=0,
+                y=0,
+                y_distance=(height * (amount / 100)),
+                x_overscroll=0,
+                prevent_fling=True,
+                repeat_delay_ms=0,
+                speed=speed,
+            )
+        )
+        await asyncio.sleep(height * (amount / 100) / speed)
+
+    async def verify_cf(
+        self,
+        click_delay: float = 5,
+        timeout: float = 15,
+        challenge_selector: Optional[str] = None,
+        flash_corners: bool = False,
+    ) -> None:
+        """
+        Finds and solves the Cloudflare checkbox challenge.
+
+        The total time for finding and clicking is governed by `timeout`.
+
+        Args:
+            click_delay: The delay in seconds between clicks.
+            timeout: The total time in seconds to wait for the challenge and solve it.
+            challenge_selector: An optional CSS selector for the challenge input element.
+            flash_corners: If True, flash the corners of the challenge element.
+
+        Raises:
+            TimeoutError: If the checkbox is not found or solved within the timeout.
+        """
+        from ..cloudflare import verify_cf
+
+        await verify_cf(self.tab, click_delay, timeout, challenge_selector, flash_corners)
