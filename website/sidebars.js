@@ -51,6 +51,14 @@ const sidebars = {
         'async_patterns',
       ],
     },
+    {
+      type: 'category',
+      label: 'Production',
+      items: [
+        'production',
+        'modular_architecture',
+      ],
+    },
   ],
 };
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import typing
 import urllib.parse
 import pathlib
@@ -114,8 +115,6 @@ class BrowserContextMixin(BrowserMixin):
 
         # 3. Setup Stealth Scripts
         if self.config.stealth:
-            import random
-
             if not hasattr(self.config, "_stealth_seed"):
                 self.config._stealth_seed = random.randint(1, 1000000)
 
@@ -163,6 +162,53 @@ class BrowserContextMixin(BrowserMixin):
                         )
                     except Exception:
                         logger.debug(f"Failed to add stealth script to {tab_obj}: {e}")
+
+        # 4. Set realistic request headers for first-party consistency
+        try:
+            await tab_obj.send(cdp.network.enable())
+            await tab_obj.send(cdp.network.set_extra_http_headers(headers={
+                "Accept-Language": lang,
+                "Upgrade-Insecure-Requests": "1",
+                "DNT": "1",
+            }))
+        except Exception as e:
+            logger.debug(f"Failed to set extra headers for {tab_obj}: {e}")
+
+        # 5. Optional startup humanization
+        if self.config.humanize:
+            await self._humanize_startup(tab_obj)
+
+
+    async def _humanize_startup(self, tab_obj: typing.Any) -> None:
+        """Adds subtle human-like warmup events to reduce deterministic startup patterns."""
+        min_delay = max(0.01, float(getattr(self.config, "humanize_min_delay", 0.08)))
+        max_delay = max(min_delay, float(getattr(self.config, "humanize_max_delay", 0.35)))
+
+        try:
+            await asyncio.sleep(random.uniform(min_delay, max_delay))
+
+            viewport = await tab_obj.send(cdp.page.get_layout_metrics())
+            width = max(300, int(viewport.css_layout_viewport.client_width))
+            height = max(300, int(viewport.css_layout_viewport.client_height))
+
+            points = [
+                (random.randint(20, width // 2), random.randint(20, height // 2)),
+                (random.randint(width // 3, width - 20), random.randint(height // 4, height - 20)),
+            ]
+            for x, y in points:
+                await tab_obj.send(cdp.input_.dispatch_mouse_event(type_="mouseMoved", x=float(x), y=float(y)))
+                await asyncio.sleep(random.uniform(min_delay / 2, max_delay / 2))
+
+            wheel_delta = random.choice([80.0, 120.0, 160.0])
+            await tab_obj.send(cdp.input_.dispatch_mouse_event(
+                type_="mouseWheel",
+                x=float(points[-1][0]),
+                y=float(points[-1][1]),
+                delta_y=wheel_delta,
+            ))
+            await asyncio.sleep(random.uniform(min_delay, max_delay))
+        except Exception as e:
+            logger.debug(f"Failed startup humanization for {tab_obj}: {e}")
 
     async def grant_all_permissions(self) -> None:
         """grant all browser permissions"""

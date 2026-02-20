@@ -98,19 +98,32 @@ Chuscraper gives you full control via `zd.start()`. Here are the powerful switch
 | Switch | Description | Default |
 | :--- | :--- | :--- |
 | `headless` | Run without a visible window (`True`/`False`) | `False` |
-| `stealth` | **Master Switch** for Anti-Detection features (enables dynamic fingerprinting) | `False` |
+| `stealth` | **Master Switch** for anti-detection features (dynamic fingerprint + webdriver hardening) | `False` |
+| `humanize` | Adds human-like startup warmup (mouse move + light wheel + natural jitter) | `False` |
+| `production_ready` | Enables safer retry/connect defaults for long-running jobs | `False` |
 | `user_data_dir` | Path to save/load browser profile (keep logins/cookies) | `Temp` |
 | `proxy` | Proxy URL (e.g. `http://user:pass@host:port`) | `None` |
 
 ### 🚀 Advanced Switches
-| Switch | Description |
-| :--- | :--- |
-| `browser_executable_path` | Custom path to Chrome/Brave binary (defaults to auto-detect) |
-| `user_agent` | Manually override User-Agent (not recommended with `stealth=True`) |
-| `sandbox` | Set `False` for Linux/Docker environments |
-| `disable_webgl` | Disable graphics for performance (`True`) |
-| `disable_webrtc` | Prevent IP leaks via WebRTC (`True` recommended for proxies) |
-| `lang` | Browser language (e.g., `en-US`, `hi-IN`) |
+| Switch | Description | Default |
+| :--- | :--- | :--- |
+| `browser_executable_path` | Custom path to Chrome/Brave binary (auto-detect if omitted) | Auto |
+| `browser` | Browser selection: `"auto"`, `"chrome"`, `"brave"` | `"auto"` |
+| `browser_args` | Extra Chromium args list | `[]` |
+| `sandbox` | Set `False` for Linux/Docker/root environments | `True` |
+| `lang` | Browser locale/language (e.g., `en-US`, `hi-IN`) | `en-US` |
+| `user_agent` | Manually override User-Agent (not recommended with `stealth=True`) | Auto |
+| `disable_webrtc` | Prevent IP leaks via WebRTC | `True` |
+| `disable_webgl` | Disable WebGL (can reduce detection surface in some setups) | `False` |
+| `timezone` | Force timezone (IANA format, e.g. `Asia/Kolkata`) | Auto/None |
+| `stealth_options` | Dict for fine-grained stealth patches | Built-in defaults |
+| `retry_enabled` | Enable retry helpers for unstable workflows | `False` |
+| `retry_timeout` | Retry timeout seconds | `10.0` |
+| `retry_count` | Retry count | `3` |
+| `browser_connection_timeout` | Wait between connection attempts | `0.25` |
+| `browser_connection_max_tries` | Browser connection retries | `10` |
+| `humanize_min_delay` | Minimum humanization delay | `0.08` |
+| `humanize_max_delay` | Maximum humanization delay | `0.35` |
 
 ### 🕵️‍♂️ Granular Stealth Options
 When `stealth=True`, you can fine-tune specific patches by passing a `stealth_options` dict:
@@ -130,7 +143,7 @@ await zd.start(stealth=True, stealth_options={
 
 We don't just claim to be stealthy; we prove it. Below are the results from top anti-bot detection suites, all passed with **100% "Human" status**.
 
-👉 **[View Full Visual Proofs &amp; Screenshots Here](docs/STEALTH_PROOF.md)**
+👉 **[View Full Visual Proofs &amp; Screenshots Here](website/docs/stealth.md)**
 
 | Detection Suite           | Result                   | Status  |
 | ------------------------- | ------------------------ | ------- |

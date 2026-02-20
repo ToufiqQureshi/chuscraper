@@ -4,47 +4,72 @@ sidebar_position: 5
 
 # Production Readiness
 
-Chuscraper v0.19.3 is built for reliability, using a modular Mixin architecture that ensures each component is focused and robust.
+This guide focuses on stable, long-running scraping/automation workloads.
 
-## Core Reliability Features
+## Production checklist
 
-### 1. Modular Architecture
-By separating concerns into Mixins (like `NavigationMixin`, `ElementInteractionMixin`, etc.), we've reduced bugs and made the codebase significantly easier to maintain and test.
+1. Pin version (example: `chuscraper==0.19.3`)
+2. Use `async with` lifecycle for guaranteed cleanup
+3. Enable `production_ready=True` for safer connection/retry behavior
+4. Enable `stealth=True` for protected sites
+5. Add `humanize=True` when facing behavioral bot checks
+6. Use robust proxy rotation and backoff strategy
 
-### 2. Connection Robustness
-The `Connection` layer has been hardened to handle WebSocket fluctuations and large message payloads, ensuring your scraper doesn't die during critical data extraction.
-
-### 3. Integrated Stealth
-Stealth isn't an afterthought. It's built into the browser launch process, automatically patching fingerprints and behaviors that trigger bot detections.
-
-## Best Practices for Scaling
-
-1. **Explicit Versions**: Always pin your installation to a stable version like `chuscraper==0.19.3`.
-2. **Handle Intermittency**: Use `try/except` blocks around `browser.get()` and `element.click()` to handle dynamic page changes or network timeouts.
-3. **Smart Waiting**: Avoid `asyncio.sleep()`. Use `await tab.wait()` or `await tab.query_selector(...)` which have built-in retry logic.
-4. **Clean Shutdown**: Always use the `async with` pattern to ensure Chrome processes aren't leaked in your production environment.
-
-## Stable Template
+## Hardened launch template
 
 ```python
 import asyncio
 import chuscraper as cs
 
-async def run_scraper():
-    try:
-        # headless=True is faster for production!
-        async with await cs.start(headless=True, stealth=True) as browser:
-            # browser.get() is the most reliable way to start
-            tab = await browser.get("https://api.example.com")
-            
-            # Robust data extraction
-            data = await tab.evaluate("window.__INITIAL_STATE__")
-            print(f"Data retrieved: {data}")
-            
-    except Exception as e:
-        print(f"Production error: {e}")
-        # Log error to your monitoring system
+async def run_job(url: str):
+    async with await cs.start(
+        headless=True,
+        stealth=True,
+        humanize=True,
+        production_ready=True,
+        retry_enabled=True,
+        retry_count=5,
+        retry_timeout=20.0,
+        browser_connection_timeout=0.5,
+        browser_connection_max_tries=20,
+        disable_webrtc=True,
+    ) as browser:
+        tab = await browser.get(url)
+        await tab.wait(2)
+        return await tab.title()
+
+
+async def main():
+    title = await run_job("https://example.com")
+    print(title)
+
 
 if __name__ == "__main__":
-    asyncio.run(run_scraper())
+    asyncio.run(main())
 ```
+
+
+## Ready-to-use example in repo
+
+Use this advanced template directly and customize proxy/challenge logic:
+
+- `examples/production_advanced_site_template.py`
+
+## Failure handling strategy
+
+- Wrap navigation and extraction in retry blocks.
+- Log URL, proxy, status code, and exception details.
+- On repeated block pages, rotate identity (`proxy`, optionally profile).
+- Keep per-target throttling to avoid burst fingerprints.
+
+## Performance notes
+
+- `headless=True` is generally faster.
+- `headless=False` may perform better for very strict anti-bot pages.
+- Disable unnecessary resources with request interception if your workflow allows.
+
+## Observability suggestions
+
+- Persist structured logs for each run.
+- Track block/challenge rate and success rate by domain.
+- Keep a canary target (known easy page) to separate infra failures from target-site blocking.

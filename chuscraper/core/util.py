@@ -8,9 +8,7 @@ import typing
 from asyncio import AbstractEventLoop
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Set, Union
-import ctypes
 import sys
-import atexit
 
 from deprecated import deprecated
 
@@ -21,105 +19,16 @@ if typing.TYPE_CHECKING:
     from .tab import Tab
 from .. import cdp
 from .config import BrowserType, Config
+from .process import start_process, read_process_stderr, register_browser_cleanup
 
 __registered__instances__: Set[Browser] = set()
 
 logger = logging.getLogger(__name__)
 T = typing.TypeVar("T")
 
-# Windows Job Object logic
-_job_handles = []
+register_browser_cleanup(__registered__instances__)
 
-if sys.platform == "win32":
-    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("PerProcessUserTimeLimit", ctypes.c_int64),
-            ("PerJobUserTimeLimit", ctypes.c_int64),
-            ("LimitFlags", ctypes.c_uint32),
-            ("MinimumWorkingSetSize", ctypes.c_size_t),
-            ("MaximumWorkingSetSize", ctypes.c_size_t),
-            ("ActiveProcessLimit", ctypes.c_uint32),
-            ("Affinity", ctypes.c_size_t),
-            ("PriorityClass", ctypes.c_uint32),
-            ("SchedulingClass", ctypes.c_uint32),
-        ]
 
-    class IO_COUNTERS(ctypes.Structure):
-        _fields_ = [
-            ("ReadOperationCount", ctypes.c_uint64),
-            ("WriteOperationCount", ctypes.c_uint64),
-            ("OtherOperationCount", ctypes.c_uint64),
-            ("ReadTransferCount", ctypes.c_uint64),
-            ("WriteTransferCount", ctypes.c_uint64),
-            ("OtherTransferCount", ctypes.c_uint64),
-        ]
-
-    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
-            ("IoInfo", IO_COUNTERS),
-            ("ProcessMemoryLimit", ctypes.c_size_t),
-            ("JobMemoryLimit", ctypes.c_size_t),
-            ("PeakProcessMemoryUsed", ctypes.c_size_t),
-            ("PeakJobMemoryUsed", ctypes.c_size_t),
-        ]
-
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
-
-    def _assign_to_job_object(process_handle: int) -> Any:
-        try:
-            job = ctypes.windll.kernel32.CreateJobObjectW(None, None)
-            if not job:
-                return None
-
-            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-
-            res = ctypes.windll.kernel32.SetInformationJobObject(
-                job,
-                9, # JobObjectExtendedLimitInformation
-                ctypes.pointer(info),
-                ctypes.sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)
-            )
-
-            if res:
-                if ctypes.windll.kernel32.AssignProcessToJobObject(job, process_handle):
-                    return job
-        except Exception as e:
-            logger.debug(f"Failed to assign process to job object: {e}")
-        return None
-
-def cleanup_registered_browsers():
-    """
-    Force kill all registered browser processes on exit.
-    This ensures no orphan chrome processes are left behind.
-    """
-    import subprocess
-    import os
-    
-    # Only log if there are actually instances to clean
-    if not __registered__instances__:
-        return
-
-    for browser in list(__registered__instances__):
-        pid = getattr(browser, "_process_pid", None)
-        if pid:
-            try:
-                if sys.platform == "win32":
-                    # Added /T (Tree kill) to ensure all sub-processes (gpu-process, etc) are gone
-                    subprocess.run(
-                        ["taskkill", "/F", "/T", "/PID", str(pid)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                else:
-                    import signal
-                    os.kill(pid, signal.SIGKILL)
-            except Exception:
-                pass
-
-atexit.register(cleanup_registered_browsers)
 
 
 async def start(
@@ -138,11 +47,20 @@ async def start(
     user_agent: Optional[str] = None,
     proxy: Optional[str] = None,
     stealth: Optional[bool] = False,
+    stealth_options: Optional[dict[str, bool]] = None,
     timezone: Optional[str] = None,
     logging: Optional[bool] = False,
     retry_enabled: Optional[bool] = False,
     retry_timeout: Optional[float] = 10.0,
     retry_count: Optional[int] = 3,
+    production_ready: Optional[bool] = False,
+    humanize: Optional[bool] = False,
+    humanize_min_delay: Optional[float] = 0.08,
+    humanize_max_delay: Optional[float] = 0.35,
+    disable_webrtc: Optional[bool] = True,
+    disable_webgl: Optional[bool] = False,
+    browser_connection_timeout: Optional[float] = 0.25,
+    browser_connection_max_tries: Optional[int] = 10,
     **kwargs: Any,
 ) -> Browser:
     """
@@ -193,11 +111,20 @@ async def start(
             user_agent=user_agent,
             proxy=proxy,
             stealth=stealth,
+            stealth_options=stealth_options,
             timezone=timezone,
             logging=logging,
             retry_enabled=retry_enabled,
             retry_timeout=retry_timeout,
             retry_count=retry_count,
+            production_ready=production_ready,
+            humanize=humanize,
+            humanize_min_delay=humanize_min_delay,
+            humanize_max_delay=humanize_max_delay,
+            disable_webrtc=disable_webrtc,
+            disable_webgl=disable_webgl,
+            browser_connection_timeout=browser_connection_timeout,
+            browser_connection_max_tries=browser_connection_max_tries,
             **kwargs,
         )
     from .browser import Browser
@@ -439,53 +366,14 @@ def cdp_get_module(domain: Union[str, types.ModuleType]) -> Any:
 def _start_process(
     exe: str | Path, params: List[str], is_posix: bool
 ) -> subprocess.Popen[bytes]:
-    """
-    Start a subprocess with the given executable and parameters.
-
-    :param exe: The executable to run.
-    :param params: List of parameters to pass to the executable.
-    :param is_posix: Boolean indicating if the system is POSIX compliant.
-
-    :return: An instance of `subprocess.Popen`.
-    """
-    proc = subprocess.Popen(
-        [str(exe)] + params,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        close_fds=is_posix,
-    )
-
-    # Assign to Job Object on Windows
-    if sys.platform == "win32":
-        job = _assign_to_job_object(int(proc._handle)) # type: ignore
-        if job:
-            # Attach handle to process object so it can be closed later if needed
-            # We also keep it in a global list as a safety net against GC if needed,
-            # though handles aren't GC'd. But primarily we want it attached.
-            # actually, let's just attach it.
-            proc._job_handle = job
-
-    return proc
+    """Compatibility wrapper around modular process launcher."""
+    return start_process(exe, params, is_posix)
 
 
 async def _read_process_stderr(process: subprocess.Popen[bytes], n: int = 2**16) -> str:
-    """
-    Read the given number of bytes from the stderr of the given process.
+    """Compatibility wrapper around modular stderr reader."""
+    return await read_process_stderr(process, n)
 
-    Read bytes are automatically decoded to utf-8.
-    """
-
-    async def read_stderr() -> bytes:
-        if process.stderr is None:
-            raise ValueError("Process has no stderr")
-        return await asyncio.to_thread(process.stderr.read, n)
-
-    try:
-        return (await asyncio.wait_for(read_stderr(), 0.25)).decode("utf-8")
-    except asyncio.TimeoutError:
-        logger.debug("Timeout reading process stderr")
-        return ""
 async def get_timezone_from_ip(proxy: Optional[str] = None) -> Optional[str]:
     """
     Attempts to get the timezone for the given proxy/IP address using ipapi.co.
