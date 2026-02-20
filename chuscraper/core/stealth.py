@@ -111,12 +111,13 @@ def get_stealth_scripts(config: Any, browser_version: str | None = None) -> tupl
                 }} catch(e) {{}}
             }};
 
-            // Mask WebDriver (Return false, but keep descriptor clean)
+            // Mask WebDriver like a regular browser context: value should be undefined
+            // and property should not be enumerable.
             try {{
                 Object.defineProperty(navProto, 'webdriver', {{
-                    get: () => false,
+                    get: () => undefined,
                     configurable: true,
-                    enumerable: true
+                    enumerable: false
                 }});
                 if (globalThis.__chu_patch) {{
                     const desc = Object.getOwnPropertyDescriptor(navProto, 'webdriver');
