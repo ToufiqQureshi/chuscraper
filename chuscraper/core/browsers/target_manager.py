@@ -184,7 +184,8 @@ class TargetManagerMixin(BrowserMixin):
                         for script in scripts:
                             await self.connection.send(
                                 cdp.page.add_script_to_evaluate_on_new_document(
-                                    source=script
+                                    source=script,
+                                    run_immediately=True # Ensure immediate execution for iframes
                                 ),
                                 session_id=session_id,
                             )
