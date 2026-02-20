@@ -20,24 +20,23 @@
 
 Chuscraper is a Python web scraping & automation library that uses **CDP (Chrome DevTools Protocol)** to extract structured data, interact with pages, and automate workflows — with a heavy focus on **Anti-Detection** and **Stealth**.
 
-It converts standard Chromium instances into undetectable agents that can bypass bot verification systems.
+It converts standard Chromium instances into undetectable agents that can bypass bot verification systems like Cloudflare, Akamai, and Datadome.
 
 ---
 
-## 🌟 Features
+## 🌟 Key Features
 
-### 🕵️‍♂️ Stealth & Anti-Detection
-
-- Hides `navigator.webdriver`, user agent rotation
-- Canvas/WebGL noise + hardware spoofing
-- Timezone & geolocation spoofing
+### 🕵️‍♂️ Dynamic Stealth & Fingerprinting (New!)
+Chuscraper now includes an advanced **Auto-Update** and **Fingerprint Rotation** engine:
+- **Auto-Update Chrome Version:** Automatically detects your installed Chrome version and updates the User-Agent to match. No manual updates required!
+- **Fingerprint Rotation:** Randomizes hardware fingerprints (RAM, CPU, Screen Resolution) per session while strictly adhering to your host OS (Windows, macOS, Linux) to prevent OS mismatch detection.
+- **Client Hints Sync:** Automatically patches `navigator.userAgentData` to match the User-Agent string, preventing "Windows 10 vs 11" inconsistencies.
+- **Modern Timezones:** Automatically syncs browser timezone with IP location using modern IANA names (e.g., `Asia/Kolkata`).
 
 ### ⚡ Async + Fast
-
 Built on async CDP, low overhead, no heavy browser bundles.
 
 ### 🔄 Flexible Outputs
-
 Supports JSON, CSV, Markdown, Excel, Pydantic, and more.
 
 ---
@@ -53,32 +52,34 @@ pip install chuscraper
 
 ---
 
----
-
 ## 💻 Quick Start (The "Easy" Way)
 
 Chuscraper is designed for **Zero Boilerplate**. You don't need complex configuration objects just to start a stealthy session.
+
+### Example: Visiting a Protected Site (e.g., Nike/Amazon)
 
 ```python
 import asyncio
 import chuscraper as zd
 
 async def main():
-    # DIRECT START: Specify stealth, proxy, or headless directly in start()
+    # DIRECT START: Enable stealth mode to bypass detection
+    # 'stealth=True' automatically activates dynamic fingerprinting
     async with await zd.start(headless=False, stealth=True) as browser:
       
-        # 🟢 BROWSER-LEVEL SHORTCUT
-        await browser.goto("https://www.makemytrip.com/")
-      
-        # 🟢 INTUITIVE ALIASES (goto, title, select_text)
-        page = browser.main_tab
-        await page.goto("https://example.com")
-      
+        print(f"🚀 Browser started with Chrome Version: {browser.version}")
+
+        # Navigate to a protected site
+        page = await browser.goto("https://www.nike.com/launch")
+
+        # Wait for content to load
+        await page.wait_for("title")
+
         title = await page.title()
-        header = await page.select_text("h1")
-      
-        print(f"Bhai, Title hai: {title}")
-        print(f"Header: {header}")
+        print(f"✅ Successfully accessed: {title}")
+
+        # Take a screenshot to verify
+        await page.save_screenshot("nike_launch.jpg")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -97,15 +98,15 @@ Chuscraper gives you full control via `zd.start()`. Here are the powerful switch
 | Switch | Description | Default |
 | :--- | :--- | :--- |
 | `headless` | Run without a visible window (`True`/`False`) | `False` |
-| `stealth` | **Master Switch** for Anti-Detection features | `False` |
+| `stealth` | **Master Switch** for Anti-Detection features (enables dynamic fingerprinting) | `False` |
 | `user_data_dir` | Path to save/load browser profile (keep logins/cookies) | `Temp` |
 | `proxy` | Proxy URL (e.g. `http://user:pass@host:port`) | `None` |
 
 ### 🚀 Advanced Switches
 | Switch | Description |
 | :--- | :--- |
-| `browser_executable_path` | Custom path to Chrome/Brave binary |
-| `user_agent` | Spoof specific User-Agent string |
+| `browser_executable_path` | Custom path to Chrome/Brave binary (defaults to auto-detect) |
+| `user_agent` | Manually override User-Agent (not recommended with `stealth=True`) |
 | `sandbox` | Set `False` for Linux/Docker environments |
 | `disable_webgl` | Disable graphics for performance (`True`) |
 | `disable_webrtc` | Prevent IP leaks via WebRTC (`True` recommended for proxies) |

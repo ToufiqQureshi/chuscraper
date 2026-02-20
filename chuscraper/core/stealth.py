@@ -132,6 +132,18 @@ def get_stealth_scripts(config: Any, browser_version: str | None = None) -> tupl
             
             // Client Hints coherence
             if (navProto.userAgentData) {{
+                // Detect Windows version from UA string to spoof correct platformVersion
+                // Windows 10 -> '10.0.0'
+                // Windows 11 -> '15.0.0' (Usually mapped to this in newer Chrome)
+                let platformVersion = '';
+                if ('{profile.os}' === 'Windows') {{
+                    if ('{new_ua}'.includes('Windows NT 10.0')) {{
+                        platformVersion = '10.0.0';
+                    }} else if ('{new_ua}'.includes('Windows NT 11.0')) {{
+                        platformVersion = '15.0.0';
+                    }}
+                }}
+
                 const data = {{
                     brands: [
                         {{ brand: 'Not(A:Brand', version: '99' }},
@@ -139,13 +151,9 @@ def get_stealth_scripts(config: Any, browser_version: str | None = None) -> tupl
                         {{ brand: 'Chromium', version: '{chrome_ver_major}' }}
                     ],
                     mobile: false,
-                    platform: '{profile.os}'
+                    platform: '{profile.os}',
+                    ...(platformVersion ? {{ platformVersion: platformVersion }} : {{}})
                 }};
-
-                // CRITICAL FIX: Ensure UA Data platform matches standard conventions
-                // Windows 10/11 should be 'Windows', macOS should be 'macOS', Linux should be 'Linux'
-                // BUT the version needs to be tricky.
-                // For now, let's trust the profile.os which is normalized (Windows, macOS, Linux)
 
                 patchProp(navProto, 'userAgentData', data);
             }}
