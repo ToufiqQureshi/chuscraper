@@ -121,7 +121,32 @@ class BrowserContextMixin(BrowserMixin):
 
             from .. import stealth
 
-            scripts = stealth.get_stealth_scripts(self.config)
+            # Pass detected browser version for coherence
+            browser_version = getattr(self, "version", None)
+            scripts, profile = stealth.get_stealth_scripts(self.config, browser_version)
+
+            # Apply CDP overrides for robust stealth (Network + JS consistency)
+            if self.config.user_agent:
+                try:
+                    await tab_obj.send(cdp.emulation.set_user_agent_override(
+                        user_agent=self.config.user_agent,
+                        accept_language=self.config.lang or "en-US",
+                        platform=profile.platform
+                    ))
+                except Exception as e:
+                    logger.debug(f"Failed to override UA: {e}")
+
+            # Override device metrics (Screen size)
+            try:
+                await tab_obj.send(cdp.emulation.set_device_metrics_override(
+                    width=profile.screen_width,
+                    height=profile.screen_height,
+                    device_scale_factor=1,
+                    mobile=False
+                ))
+            except Exception as e:
+                logger.debug(f"Failed to override metrics: {e}")
+
             for script in scripts:
                 try:
                     await tab_obj.send(
