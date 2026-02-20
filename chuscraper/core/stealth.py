@@ -250,7 +250,34 @@ def get_stealth_scripts(config: Any, browser_version: str | None = None) -> tupl
         } catch(e) {}
         """)
 
-    # 6. CLEANUP GLOBAL PATCHER
+    # 6. CDC REMOVAL & PERMISSIONS MOCKING (Advanced Evasion)
+    # Remove window.cdc_ variables (Selenium/CDP signature)
+    scripts.append("""
+        try {
+            const regex = /cdc_[a-z0-9]/;
+            const props = Object.getOwnPropertyNames(window);
+            for (const prop of props) {
+                if (regex.test(prop)) {
+                    delete window[prop];
+                }
+            }
+        } catch(e) {}
+    """)
+
+    # Mock Permissions API to return 'prompt' or 'default'
+    if opts.get("patch_permissions", True):
+        scripts.append("""
+        try {
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: 'prompt', onchange: null }) :
+                originalQuery(parameters)
+            );
+        } catch(e) {}
+        """)
+
+    # 7. CLEANUP GLOBAL PATCHER
     scripts.append("try { delete globalThis.__chu_patch; } catch(e) {}")
 
     return scripts, profile

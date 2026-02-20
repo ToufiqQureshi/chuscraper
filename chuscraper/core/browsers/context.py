@@ -150,10 +150,19 @@ class BrowserContextMixin(BrowserMixin):
             for script in scripts:
                 try:
                     await tab_obj.send(
-                        cdp.page.add_script_to_evaluate_on_new_document(source=script)
+                        cdp.page.add_script_to_evaluate_on_new_document(
+                            source=script,
+                            run_immediately=True # Ensure immediate execution if supported by protocol version
+                        )
                     )
                 except Exception as e:
-                    logger.debug(f"Failed to add stealth script to {tab_obj}: {e}")
+                    # Fallback for older protocol versions
+                    try:
+                        await tab_obj.send(
+                            cdp.page.add_script_to_evaluate_on_new_document(source=script)
+                        )
+                    except Exception:
+                        logger.debug(f"Failed to add stealth script to {tab_obj}: {e}")
 
     async def grant_all_permissions(self) -> None:
         """grant all browser permissions"""
