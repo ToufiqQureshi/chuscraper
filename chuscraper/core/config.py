@@ -57,6 +57,10 @@ class Config:
         retry_enabled: Optional[bool] = False,
         retry_timeout: float = 10.0,
         retry_count: int = 3,
+        production_ready: Optional[bool] = False,
+        humanize: Optional[bool] = False,
+        humanize_min_delay: float = 0.08,
+        humanize_max_delay: float = 0.35,
         **kwargs: Any,
     ):
         """
@@ -68,6 +72,10 @@ class Config:
         :param retry_enabled: enables automatic retries
         :param retry_timeout: timeout for retries
         :param retry_count: number of retries
+        :param production_ready: enables safer defaults for long-running production workloads
+        :param humanize: enables human-like startup warmup and pacing helpers
+        :param humanize_min_delay: lower bound for startup jitter and pacing
+        :param humanize_max_delay: upper bound for startup jitter and pacing
         :param kwargs:
         """
 
@@ -116,6 +124,17 @@ class Config:
         self.retry_enabled = retry_enabled
         self.retry_timeout = retry_timeout
         self.retry_count = retry_count
+        self.production_ready = production_ready
+        self.humanize = humanize
+        self.humanize_min_delay = humanize_min_delay
+        self.humanize_max_delay = max(humanize_min_delay, humanize_max_delay)
+
+        if self.production_ready:
+            self.retry_enabled = True
+            self.retry_count = max(int(self.retry_count), 5)
+            self.retry_timeout = max(float(self.retry_timeout), 20.0)
+            browser_connection_timeout = max(float(browser_connection_timeout), 0.5)
+            browser_connection_max_tries = max(int(browser_connection_max_tries), 20)
 
         # ... (rest of the logic)
         if is_posix and is_root() and sandbox:
@@ -232,6 +251,8 @@ class Config:
             args.append("--headless=new")
         if self.stealth:
             args.append("--disable-blink-features=AutomationControlled")
+        if self.humanize and not self.headless:
+            args += ["--start-maximized", "--disable-popup-blocking"]
         if self.user_agent:
             args.append(f"--user-agent={self.user_agent}")
         if not self.sandbox:
