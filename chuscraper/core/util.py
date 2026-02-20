@@ -518,6 +518,12 @@ async def get_timezone_from_ip(proxy: Optional[str] = None) -> Optional[str]:
 
             tz = await asyncio.to_thread(do_request)
             if tz and "/" in tz:
+                # Modernize timezone names
+                if tz == "Asia/Calcutta":
+                    tz = "Asia/Kolkata"
+                elif tz == "Europe/Kiev":
+                    tz = "Europe/Kyiv"
+
                 logger.info(f"Detected timezone from IP: {tz}")
                 return tz
         except Exception as e:

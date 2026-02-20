@@ -141,6 +141,12 @@ def get_stealth_scripts(config: Any, browser_version: str | None = None) -> tupl
                     mobile: false,
                     platform: '{profile.os}'
                 }};
+
+                // CRITICAL FIX: Ensure UA Data platform matches standard conventions
+                // Windows 10/11 should be 'Windows', macOS should be 'macOS', Linux should be 'Linux'
+                // BUT the version needs to be tricky.
+                // For now, let's trust the profile.os which is normalized (Windows, macOS, Linux)
+
                 patchProp(navProto, 'userAgentData', data);
             }}
         }} catch(e) {{}}
