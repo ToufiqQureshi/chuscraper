@@ -230,6 +230,8 @@ class Config:
             args.extend([arg for arg in self._browser_args if arg not in args])
         if self.headless:
             args.append("--headless=new")
+        if self.stealth:
+            args.append("--disable-blink-features=AutomationControlled")
         if self.user_agent:
             args.append(f"--user-agent={self.user_agent}")
         if not self.sandbox:
