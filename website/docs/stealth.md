@@ -1,37 +1,77 @@
-# Stealth & Anti-Detect
+# Stealth & Anti-Detection
 
-Chuscraper v0.19.3 is built to bypass modern bot protections (Cloudflare, Akamai, Datadome, etc.) out of the box with zero configuration.
+Chuscraper is designed for modern bot-defense stacks (Cloudflare, Akamai, DataDome, etc.) with configurable stealth and behavior realism.
 
-## Enabling Stealth
-
-Simply pass `stealth=True` when starting the browser.
+## Quick stealth start
 
 ```python
-# Start in full undetected mode
-browser = await cs.start(stealth=True)
+import asyncio
+import chuscraper as cs
+
+async def main():
+    async with await cs.start(
+        stealth=True,
+        humanize=True,
+        production_ready=True,
+        headless=False,
+    ) as browser:
+        tab = await browser.get("https://bot.sannysoft.com/")
+        await tab.wait(3)
+
+asyncio.run(main())
 ```
 
-## What's under the hood?
+## What stealth mode applies
 
-Our v0.19 engine applies deep patches to the browser environment before the target site can even run its first script:
+With `stealth=True`, Chuscraper applies:
 
-1.  **Navigator Hardening**: Fixes `navigator.webdriver`, `languages`, `platform`, and `hardwareConcurrency`.
-2.  **WebGL Masking**: Headless Chrome often reports a "Software Renderer" (SwiftShader). We spoof it to look like a real physical GPU (Nvidia/Intel).
-3.  **Coherent Fingerprints**: Ensures that your IP, timezone, locale, and User-Agent are internally consistent and "trustworthy."
-4.  **Anti-Automation Leak Fixes**: Patches properties that tools like Selenium or Puppeteer leave behind (e.g., `cdc_` string leaks).
+1. **WebDriver hardening** (`navigator.webdriver` masking)
+2. **Client hints + UA coherence**
+3. **WebGL and hardware profile spoofing**
+4. **Chrome runtime + permissions noise reduction**
+5. **Device metrics and locale/timezone coherence**
 
-## Testing your Browser
+## Recommended production preset
 
-You can verify Chuscraper's stealth score by navigating to these benchmarks:
+For high-friction targets:
 
 ```python
-tab = await browser.get("https://bot.sannysoft.com/")
-# Check if "WebDriver" is Green (Missing) 
+browser = await cs.start(
+    stealth=True,
+    humanize=True,
+    production_ready=True,
+    retry_enabled=True,
+    retry_count=5,
+    retry_timeout=20,
+)
 ```
 
--   [CreepJS](https://abrahamjuliot.github.io/creepjs/) (Aim for high trust score)
--   [SannySoft Bot Test](https://bot.sannysoft.com/)
--   [BrowserLeaks WebGL](https://browserleaks.com/webgl)
+## Fine-grained stealth options
 
-## Headless vs Headed
-While Chuscraper is extremely stealthy in **headless** mode, some sites are exceptionally aggressive. If you are getting blocked, try running with `headless=False` to see if the behavior changes.
+```python
+browser = await cs.start(
+    stealth=True,
+    stealth_options={
+        "patch_webdriver": True,
+        "patch_webgl": True,
+        "patch_canvas": True,
+        "patch_audio": True,
+        "patch_permissions": True,
+        "patch_chrome_runtime": True,
+    },
+)
+```
+
+## Practical anti-block tips
+
+- Prefer **residential/mobile proxies** for strict targets.
+- Keep **timezone + language + proxy geolocation** aligned.
+- Use `headless=False` for hardest targets.
+- Reuse `user_data_dir` for persistent trust/cookies.
+- Avoid rapid repetitive actions; keep realistic pacing.
+
+## Benchmark sites
+
+- [SannySoft](https://bot.sannysoft.com/)
+- [CreepJS](https://abrahamjuliot.github.io/creepjs/)
+- [BrowserLeaks WebGL](https://browserleaks.com/webgl)
