@@ -9,6 +9,7 @@ from .. import cdp
 # Import Mixins
 from .elements.state import ElementStateMixin
 from .elements.interaction import ElementInteractionMixin, Position
+from .elements.media import ElementMediaMixin
 from .elements.query import ElementQueryMixin
 
 if typing.TYPE_CHECKING:
@@ -36,7 +37,7 @@ def create(
     return elem
 
 
-class Element(ElementStateMixin, ElementInteractionMixin, ElementQueryMixin):
+class Element(ElementStateMixin, ElementInteractionMixin, ElementMediaMixin, ElementQueryMixin):
     def __init__(self, node: cdp.dom.Node, tab: Tab, tree: cdp.dom.Node | None = None):
         """
         Represents an (HTML) DOM Element

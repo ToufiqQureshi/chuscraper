@@ -16,6 +16,7 @@ Chuscraper is moving toward an industry-grade modular structure so the project i
 - `core/process.py` → browser process lifecycle helpers (spawn/cleanup/stderr).
 - `core/browsers/context.py` → runtime context behavior (stealth, locale, headers, humanization).
 - `core/stealth.py` → stealth script generation and fingerprint coherence.
+- `core/elements/media.py` → element media/screenshot/recording concerns.
 
 ## Refactor pattern to follow
 
