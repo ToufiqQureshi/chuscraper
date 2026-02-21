@@ -277,7 +277,91 @@ def get_stealth_scripts(config: Any, browser_version: str | None = None) -> tupl
         } catch(e) {}
         """)
 
-    # 7. CLEANUP GLOBAL PATCHER
+    # 7. HIDE NAVIGATOR.WEBDRIVER (Hardening)
+    # Ensure getter is properly overwritten to return false AND hide property presence
+    if opts.get("patch_webdriver", True):
+        scripts.append("""
+        try {
+            Object.defineProperty(Navigator.prototype, 'webdriver', {
+                get: () => false,
+                configurable: true,
+                enumerable: true // Often safer to keep enumerable but false
+            });
+        } catch(e) {}
+        """)
+
+    # 8. STACK TRACE SPOOFING (Hide Puppeteer/CDP errors)
+    scripts.append("""
+    try {
+        const ErrorProxy = new Proxy(Error, {
+            apply(target, thisArg, args) {
+                const err = Reflect.apply(target, thisArg, args);
+                if (err.stack && err.stack.includes('puppeteer')) {
+                    err.stack = err.stack.replace(/puppeteer/g, 'internal');
+                }
+                return err;
+            }
+        });
+        window.Error = ErrorProxy;
+    } catch(e) {}
+    """)
+
+    # 9. HARDEN NAVIGATOR.PLUGINS & MIMETYPES (Headless Fix)
+    # Headless Chrome has 0 plugins, which is a massive tell.
+    # We inject standard Chrome PDF viewer plugins.
+    scripts.append("""
+    try {
+        if (navigator.plugins.length === 0) {
+            const PDFPlugin = {
+                0: { type: "application/pdf", suffixes: "pdf", description: "Portable Document Format", enabledPlugin: null },
+                description: "Portable Document Format",
+                filename: "internal-pdf-viewer",
+                length: 1,
+                name: "Chrome PDF Viewer"
+            };
+
+            const mimeType = { type: "application/pdf", suffixes: "pdf", description: "Portable Document Format", enabledPlugin: PDFPlugin };
+            PDFPlugin[0].enabledPlugin = PDFPlugin;
+
+            const plugins = {
+                0: PDFPlugin,
+                1: PDFPlugin,
+                2: PDFPlugin,
+                3: PDFPlugin,
+                4: PDFPlugin,
+                length: 5,
+                "Chrome PDF Viewer": PDFPlugin,
+                "Chromium PDF Viewer": PDFPlugin,
+                "Microsoft Edge PDF Viewer": PDFPlugin,
+                "WebKit built-in PDF": PDFPlugin,
+                "PDF Viewer": PDFPlugin,
+                item: (index) => PDFPlugin,
+                namedItem: (name) => PDFPlugin
+            };
+
+            const mimes = {
+                0: mimeType,
+                1: mimeType,
+                length: 2,
+                "application/pdf": mimeType,
+                "text/pdf": mimeType,
+                item: (index) => mimeType,
+                namedItem: (name) => mimeType
+            };
+
+            const patchNav = (prop, val) => {
+                Object.defineProperty(Navigator.prototype, prop, {
+                    get: () => val
+                });
+            };
+
+            patchNav('plugins', plugins);
+            patchNav('mimeTypes', mimes);
+        }
+    } catch(e) {}
+    """)
+
+    # 10. CLEANUP GLOBAL PATCHER
     scripts.append("try { delete globalThis.__chu_patch; } catch(e) {}")
 
     return scripts, profile
