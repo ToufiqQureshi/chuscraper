@@ -25,7 +25,6 @@ from ..cdp.fetch import RequestStage
 from ..cdp.network import ResourceType
 from ..cdp.runtime import DeepSerializedValue
 from ..extractors.markdown import html_to_markdown
-from .humanizer import Humanizer
 from pydantic import BaseModel
 
 from .tabs.navigation import NavigationMixin
@@ -167,9 +166,6 @@ class Tab(
         self.browser = browser
         self._dom = None
         self._window_id = None
-        # Track last mouse position for human-like movements (default to top-left safe zone)
-        self._last_mouse_x = 0
-        self._last_mouse_y = 0
         self._is_stopped = False
         self._timeout = 30.0
         self._download_behavior = None
@@ -819,30 +815,6 @@ class Tab(
                         res.append(abs_url)
         return res
 
-    async def verify_cf(
-        self,
-        click_delay: float = 5,
-        timeout: float = 15,
-        challenge_selector: Optional[str] = None,
-        flash_corners: bool = False,
-    ) -> None:
-        """
-        Finds and solves the Cloudflare checkbox challenge.
-
-        The total time for finding and clicking is governed by `timeout`.
-
-        Args:
-            click_delay: The delay in seconds between clicks.
-            timeout: The total time in seconds to wait for the challenge and solve it.
-            challenge_selector: An optional CSS selector for the challenge input element.
-            flash_corners: If True, flash the corners of the challenge element.
-
-        Raises:
-            TimeoutError: If the checkbox is not found or solved within the timeout.
-        """
-        from .cloudflare import verify_cf
-
-        await verify_cf(self, click_delay, timeout, challenge_selector, flash_corners)
 
 
     # Storage and Network overrides are now in mixins

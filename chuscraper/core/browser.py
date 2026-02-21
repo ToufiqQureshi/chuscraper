@@ -169,9 +169,6 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
                 % ",".join(str(_) for _ in self._config._extensions)
             )
 
-        # 0. Automated Localization (Timezone from IP)
-        if self._config.stealth and self._config.proxy and not self._config.timezone:
-            self._config.timezone = await util.get_timezone_from_ip(self._config.proxy)
 
         # Local Proxy Forwarding
         resolved_proxy = None
@@ -285,8 +282,6 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             
         await self.update_targets()
         
-        for t in self.tabs:
-            await self._apply_stealth_and_timezone(t)
             
         return self
 
@@ -299,14 +294,6 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             resp = await self._http.get("version")
             self.info = ContraDict(resp, silent=True)
 
-            # Auto-detect browser version for stealth coherence
-            if not self.version and "Browser" in resp:
-                # Matches "Chrome/124.0.0.0" or "HeadlessChrome/124.0.0.0"
-                match = re.search(r"(?:Chrome|Chromium)/([\d\.]+)", resp["Browser"])
-                if match:
-                    self.version = match.group(1)
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"Detected Chrome Version: {self.version}")
 
             return True
         except Exception:

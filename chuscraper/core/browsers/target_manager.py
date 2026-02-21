@@ -101,10 +101,6 @@ class TargetManagerMixin(BrowserMixin):
 
                 self.browser._targets.append(new_target)
                 
-                # Apply stealth/timezone to relevant targets only
-                # Restricting to 'page' only to avoid crashing on short-lived iframes (ads/trackers)
-                if target_info.type_ == "page":
-                    asyncio.create_task(self.browser._apply_stealth_and_timezone(new_target))
 
                 logger.debug(
                     "target #%d created => %s", len(self.browser._targets), new_target
@@ -145,63 +141,18 @@ class TargetManagerMixin(BrowserMixin):
     async def _handle_attached_to_target(
         self, event: cdp.target.AttachedToTarget
     ) -> None:
-        """Handles Target.attachedToTarget. Injects stealth scripts if waiting."""
+        """Handles Target.attachedToTarget. Resumes execution if waiting for debugger."""
         session_id = event.session_id
         target_info = event.target_info
 
         if event.waiting_for_debugger:
+            # ALWAYS RESUME execution, otherwise the tab hangs forever
             try:
-                if self.config.stealth:
-                    from .. import stealth
-
-                    # Pass detected browser version for coherence
-                    browser_version = getattr(self, "version", None)
-                    scripts, profile = stealth.get_stealth_scripts(self.config, browser_version)
-
-                    # Only apply to 'page' to avoid crashing on short-lived iframes/workers
-                    if target_info.type_ == "page":
-                        # Apply CDP overrides for new targets
-                        if self.config.user_agent:
-                            await self.connection.send(
-                                cdp.emulation.set_user_agent_override(
-                                    user_agent=self.config.user_agent,
-                                    accept_language=self.config.lang or "en-US",
-                                    platform=profile.platform
-                                ),
-                                session_id=session_id
-                            )
-
-                        await self.connection.send(
-                            cdp.emulation.set_device_metrics_override(
-                                width=profile.screen_width,
-                                height=profile.screen_height,
-                                device_scale_factor=1,
-                                mobile=False
-                            ),
-                            session_id=session_id
-                        )
-
-                        for script in scripts:
-                            await self.connection.send(
-                                cdp.page.add_script_to_evaluate_on_new_document(
-                                    source=script,
-                                    run_immediately=True # Ensure immediate execution for iframes
-                                ),
-                                session_id=session_id,
-                            )
-                    # We skip 'iframe', 'worker', 'service_worker' to prevent 404s and hangs
-            except Exception as e:
-                logger.error(
-                    f"Failed to handle attached target {target_info.target_id}: {e}"
+                await self.connection.send(
+                    cdp.runtime.run_if_waiting_for_debugger(), session_id=session_id
                 )
-            finally:
-                # ALWAYS RESUME execution, otherwise the tab hangs forever
-                try:
-                    await self.connection.send(
-                        cdp.runtime.run_if_waiting_for_debugger(), session_id=session_id
-                    )
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
     async def _get_targets(self) -> typing.List[cdp.target.TargetInfo]:
         if not self.connection:
@@ -261,7 +212,6 @@ class TargetManagerMixin(BrowserMixin):
                 if loop.time() - start_time > self.config.browser_connection_timeout:
                     raise asyncio.TimeoutError("Timeout waiting for new tab")
 
-            await self.browser._apply_stealth_and_timezone(tab_obj)
 
             if url != "about:blank":
                 await tab_obj.get(url)

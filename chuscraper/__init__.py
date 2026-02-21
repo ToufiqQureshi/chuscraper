@@ -1,6 +1,7 @@
 from chuscraper.core.keys import KeyEvents, SpecialKeys, KeyPressEvent, KeyModifiers
 from chuscraper.core.observability import Logger, FailureDumper
 from chuscraper.core.config import Config
+from chuscraper.core.stealth import SystemProfile
 
 BrowserConfig = Config
 
@@ -26,6 +27,7 @@ __all__ = [
     "KeyModifiers",
     "Logger",
     "FailureDumper",
+    "SystemProfile",
 ]
 
 # Lazy imports to avoid circular dependencies

@@ -174,49 +174,30 @@ class ElementInteractionMixin(ElementMixin):
         target_x, target_y = pos.center
         
         if mode == "human":
-            from ..humanizer import Humanizer
-            
-            # Randomize destination slightly
-            target_x += list(util.circle(0, 0, radius=3, num=1))[0][0]
-            target_y += list(util.circle(0, 0, radius=3, num=1))[0][1]
-            
-            # Access hidden _last_mouse_x on tab? Tab implementation should expose these or we accept protected access
+            # Simple linear mouse path from last position to target
             last_x = getattr(self.tab, '_last_mouse_x', 0)
             last_y = getattr(self.tab, '_last_mouse_y', 0)
-
-            path = Humanizer.bezier_curve(
-                last_x, last_y,
-                target_x, target_y,
-                steps=Humanizer.get_mouse_steps(last_x, last_y, target_x, target_y)
-            )
-
-            for x, y in path:
-                await self.tab.send(cdp.input_.dispatch_mouse_event(
-                    type_="mouseMoved", x=x, y=y
-                ))
             
-            setattr(self.tab, '_last_mouse_x', target_x)
-            setattr(self.tab, '_last_mouse_y', target_y)
+            # Generate a few mid-points for a slightly natural path
+            steps = max(5, int(((target_x - last_x)**2 + (target_y - last_y)**2)**0.5 // 20))
+            for i in range(1, steps + 1):
+                mx = last_x + (target_x - last_x) * i / steps
+                my = last_y + (target_y - last_y) * i / steps
+                await self.tab.send(cdp.input_.dispatch_mouse_event(
+                    type_="mouseMoved", x=mx, y=my
+                ))
             
             # Click
             await self.tab.send(cdp.input_.dispatch_mouse_event(
                 type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
             ))
-            await asyncio.sleep(random.uniform(0.05, 0.15)) # Key down delay
-            await self.tab.send(cdp.input_.dispatch_mouse_event(
-                type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
-            ))
-        
-        elif mode == "cdp":
-            await self.tab.send(cdp.input_.dispatch_mouse_event(
-                type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
-            ))
+            await asyncio.sleep(random.uniform(0.05, 0.15))
             await self.tab.send(cdp.input_.dispatch_mouse_event(
                 type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
             ))
 
     async def fill(self, text: str) -> None:
-        await self.click(mode="human") # Focus
+        await self.click(mode="cdp")  # Focus
         await self.clear_input()
         await self.send_keys(text)
 
@@ -527,14 +508,10 @@ class ElementInteractionMixin(ElementMixin):
             )
         )
 
-        steps = steps or Humanizer.get_mouse_steps(start_point[0], start_point[1], end_point[0], end_point[1])
-        path = Humanizer.bezier_curve(
-            start_point[0], start_point[1],
-            end_point[0], end_point[1],
-            steps=steps
-        )
-
-        for x, y in path:
+        num_steps = steps or max(10, int(((end_point[0] - start_point[0])**2 + (end_point[1] - start_point[1])**2)**0.5 // 10))
+        for i in range(1, num_steps + 1):
+            x = start_point[0] + (end_point[0] - start_point[0]) * i / num_steps
+            y = start_point[1] + (end_point[1] - start_point[1]) * i / num_steps
             await self.tab.send(
                 cdp.input_.dispatch_mouse_event(
                     "mouseMoved",

@@ -32,8 +32,7 @@ def print_banner():
 / /___/ __  / /_/ /__/ / /___/ _, _/ ___ / ____/ /___/ _, _/
 \\____/_/ /_/\\____/____/\\____/_/ |_/_/  |/_/   /_____/_/ |_|
 {RESET}
-{BOLD}Chuscraper v{version}{RESET} {GREEN}• Stealth Scraping Engine{RESET}
-{CYAN}Running in Undetectable Mode{RESET}
+{BOLD}Chuscraper v{version}{RESET} {GREEN}• High-Performance Browser Automation{RESET}
 """
     # Print to stderr to avoid interfering with stdout pipe outputs
     print(banner, file=sys.stderr)

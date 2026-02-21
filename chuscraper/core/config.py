@@ -43,39 +43,26 @@ class Config:
         lang: Optional[str] = None,
         host: str | None = AUTO,
         port: int | None = AUTO,
-        expert: bool | None = AUTO,
         browser_connection_timeout: float = 0.25,
         browser_connection_max_tries: int = 10,
         user_agent: Optional[str] = None,
         disable_webrtc: Optional[bool] = True,
         disable_webgl: Optional[bool] = False,
         proxy: Optional[str] = None,
-        stealth: Optional[bool] = False,
-        stealth_options: Optional[Dict[str, bool]] = None,
         timezone: Optional[str] = None,
         logging: Optional[bool] = False,
         retry_enabled: Optional[bool] = False,
         retry_timeout: float = 10.0,
         retry_count: int = 3,
-        production_ready: Optional[bool] = False,
-        humanize: Optional[bool] = False,
-        humanize_min_delay: float = 0.08,
-        humanize_max_delay: float = 0.35,
         **kwargs: Any,
     ):
         """
         creates a config object.
         ...
-        :param stealth: enables stealth mode
-        :param stealth_options: granular control over stealth patches
         :param logging: enables basic logging
         :param retry_enabled: enables automatic retries
         :param retry_timeout: timeout for retries
         :param retry_count: number of retries
-        :param production_ready: enables safer defaults for long-running production workloads
-        :param humanize: enables human-like startup warmup and pacing helpers
-        :param humanize_min_delay: lower bound for startup jitter and pacing
-        :param humanize_max_delay: upper bound for startup jitter and pacing
         :param kwargs:
         """
 
@@ -98,43 +85,16 @@ class Config:
         self.user_agent = user_agent 
         self.host = host
         self.port = port
-        self.expert = expert
         self.disable_webrtc = disable_webrtc
         self.disable_webgl = disable_webgl
         self._extensions: list[PathLike] = []
         
         self.proxy = proxy
-        self.stealth = stealth
-        self.stealth_options = stealth_options or {
-            "patch_webdriver": True,
-            "patch_canvas": True,
-            "patch_audio": True,
-            "patch_fonts": True,
-            "patch_webgpu": True,
-            "patch_client_hints": True,
-            "patch_webgl": True,
-            "patch_webrtc": True,
-            "patch_battery": True,
-            "patch_media_devices": True,
-            "patch_permissions": True,
-            "patch_chrome_runtime": True,
-        }
         self.timezone = timezone
         self.logging = logging
         self.retry_enabled = retry_enabled
         self.retry_timeout = retry_timeout
         self.retry_count = retry_count
-        self.production_ready = production_ready
-        self.humanize = humanize
-        self.humanize_min_delay = humanize_min_delay
-        self.humanize_max_delay = max(humanize_min_delay, humanize_max_delay)
-
-        if self.production_ready:
-            self.retry_enabled = True
-            self.retry_count = max(int(self.retry_count), 5)
-            self.retry_timeout = max(float(self.retry_timeout), 20.0)
-            browser_connection_timeout = max(float(browser_connection_timeout), 0.5)
-            browser_connection_max_tries = max(int(browser_connection_max_tries), 20)
 
         # ... (rest of the logic)
         if is_posix and is_root() and sandbox:
@@ -242,17 +202,10 @@ class Config:
         args += ["--user-data-dir=%s" % self.user_data_dir]
         args += ["--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch"]
         args += ["--disable-session-crashed-bubble"]
-        if self.expert:
-            # Added --test-type to suppress "unsupported command-line flag" banners (like AutomationControlled)
-            args.append("--test-type")
         if self._browser_args:
             args.extend([arg for arg in self._browser_args if arg not in args])
         if self.headless:
             args.append("--headless=new")
-        if self.stealth:
-            args.append("--disable-blink-features=AutomationControlled")
-        if self.humanize and not self.headless:
-            args += ["--start-maximized", "--disable-popup-blocking"]
         if self.user_agent:
             args.append(f"--user-agent={self.user_agent}")
         if not self.sandbox:

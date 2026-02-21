@@ -43,24 +43,19 @@ async def start(
     lang: Optional[str] = None,
     host: Optional[str] = None,
     port: Optional[int] = None,
-    expert: Optional[bool] = None,
     user_agent: Optional[str] = None,
     proxy: Optional[str] = None,
-    stealth: Optional[bool] = False,
-    stealth_options: Optional[dict[str, bool]] = None,
     timezone: Optional[str] = None,
     logging: Optional[bool] = False,
     retry_enabled: Optional[bool] = False,
     retry_timeout: Optional[float] = 10.0,
     retry_count: Optional[int] = 3,
-    production_ready: Optional[bool] = False,
-    humanize: Optional[bool] = False,
-    humanize_min_delay: Optional[float] = 0.08,
-    humanize_max_delay: Optional[float] = 0.35,
     disable_webrtc: Optional[bool] = True,
     disable_webgl: Optional[bool] = False,
     browser_connection_timeout: Optional[float] = 0.25,
     browser_connection_max_tries: Optional[int] = 10,
+    stealth: bool = False,
+    stealth_domain: str = "",
     **kwargs: Any,
 ) -> Browser:
     """
@@ -107,20 +102,13 @@ async def start(
             lang,
             host=host,
             port=port,
-            expert=expert,
             user_agent=user_agent,
             proxy=proxy,
-            stealth=stealth,
-            stealth_options=stealth_options,
             timezone=timezone,
             logging=logging,
             retry_enabled=retry_enabled,
             retry_timeout=retry_timeout,
             retry_count=retry_count,
-            production_ready=production_ready,
-            humanize=humanize,
-            humanize_min_delay=humanize_min_delay,
-            humanize_max_delay=humanize_max_delay,
             disable_webrtc=disable_webrtc,
             disable_webgl=disable_webgl,
             browser_connection_timeout=browser_connection_timeout,
@@ -129,7 +117,18 @@ async def start(
         )
     from .browser import Browser
 
-    return await Browser.create(config)
+    browser = await Browser.create(config)
+
+    # ── Stealth mode: auto-apply system fingerprint to the main tab ──────────
+    if stealth:
+        from .stealth import SystemProfile
+        profile = SystemProfile.from_system(cookie_domain=stealth_domain)
+        tab = browser.main_tab
+        await profile.apply(tab, load_cookies=bool(stealth_domain))
+        # Attach profile to browser for later use (e.g., save_cookies)
+        browser._stealth_profile = profile
+
+    return browser
 
 
 async def create_from_undetected_chromedriver(driver: Any) -> Browser:
