@@ -46,6 +46,7 @@ const sidebars = {
       items: [
         'network',
         'stealth',
+        'mobile_scraping',
         'ai_features',
         'advanced_cdp',
         'async_patterns',
