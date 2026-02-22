@@ -28,6 +28,8 @@ __all__ = [
     "Logger",
     "FailureDumper",
     "SystemProfile",
+    "MobileDevice",
+    "MobileElement",
 ]
 
 # Lazy imports to avoid circular dependencies
@@ -37,4 +39,5 @@ from chuscraper.core.tab import Tab
 from chuscraper.core.element import Element
 from chuscraper.core.connection import Connection
 from chuscraper.core._contradict import ContraDict, cdict
+from chuscraper.mobile import MobileDevice, MobileElement
 from chuscraper import cdp
