@@ -4,7 +4,7 @@
 
 <h1 align="center">🕷️ Chuscraper</h1>
 <p align="center">
-  <strong>Stealth-focused web scraping & automation framework powered by CDP</strong><br/>
+  <strong>Stealth-focused Web & Mobile automation framework powered by CDP and ADB</strong><br/>
   You Only Scrape Once — data extraction made smarter, faster, and more resilient.
 </p>
 
@@ -18,13 +18,20 @@
 
 ## 🚀 What is Chuscraper?
 
-Chuscraper is a Python web scraping & automation library that uses **CDP (Chrome DevTools Protocol)** to extract structured data, interact with pages, and automate workflows — with a heavy focus on **Anti-Detection** and **Stealth**.
+Chuscraper is a Python web & mobile scraping library that uses **CDP (Chrome DevTools Protocol)** for web and **ADB (Android Debug Bridge)** for mobile apps. It extracts structured data, interacts with pages/screens, and automates workflows — with a heavy focus on **Anti-Detection** and **Stealth**.
 
-It converts standard Chromium instances into undetectable agents that can bypass bot verification systems like Cloudflare, Akamai, and Datadome.
+It converts standard Chromium instances into undetectable agents that can bypass bot verification systems like Cloudflare, Akamai, and Datadome, while also allowing control of native Android apps for data extraction.
 
 ---
 
 ## 🌟 Key Features
+
+### 📱 Native Mobile App Scraping (New!)
+Chuscraper now supports scraping native Android apps using ADB:
+- **UI Automation:** Tap, swipe, and type on any connected Android device (Real or Emulator).
+- **XML Dumping:** Extract the full UI hierarchy as XML to find elements by text, resource-id, or content-desc.
+- **Background Execution:** Run scripts without touching the device.
+- **Zero-Setup:** Just enable USB Debugging and connect. No Appium server required.
 
 ### 🕵️‍♂️ Dynamic Stealth & Fingerprinting (New!)
 Chuscraper now includes an advanced **Auto-Update** and **Fingerprint Rotation** engine:
@@ -135,6 +142,35 @@ await zd.start(stealth=True, stealth_options={
     "patch_canvas": True,     # Add Canvas Noise
     "patch_audio": False      # Disable Audio Fingerprinting noise
 })
+```
+
+### 📱 Mobile Scraping Example
+Scrape data from any native Android app (e.g., Hotel/Flight apps):
+
+```python
+import asyncio
+from chuscraper.mobile import MobileDevice
+
+async def main():
+    # Connect to first available device
+    device = await MobileDevice().connect()
+
+    # Example: Searching for hotels
+    city_input = await device.find_element(text="Enter destination")
+    if city_input:
+        await city_input.type("Goa")
+
+    search_btn = await device.find_element(resource_id="com.hotel.app:id/search_btn")
+    if search_btn:
+        await search_btn.click()
+
+    # Extract prices
+    prices = await device.find_elements(resource_id="com.hotel.app:id/price_text")
+    for price in prices:
+        print(price.get_text())
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---

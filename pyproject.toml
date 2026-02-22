@@ -1,7 +1,7 @@
 [project]
 name = "chuscraper"
 dynamic = ["version"]
-description = "A blazing fast, async-first, undetectable webscraping/web automation framework"
+description = "A blazing fast, async-first, undetectable web and mobile automation framework powered by CDP and ADB"
 readme = "README.md"
 authors = [{ name = "Toufiq Qureshi", email = "toufiq@neurofiq.in" }]
 license = { file = "LICENSE" }
@@ -30,6 +30,7 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "psutil>=7.1.0",
     "emoji>=2.14.1",
+    "lxml>=5.0.0",
 ]
 
 [project.urls]
