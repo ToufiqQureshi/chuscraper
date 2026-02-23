@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, List, Optional
 from ... import cdp
 from .. import util
 import typing
+from chuscraper.engine.parser import Selector as ChuSelector
+from chuscraper.engine.core.extract import Convertor
 
 if TYPE_CHECKING:
     from ..element import Element
@@ -36,6 +38,45 @@ class ElementQueryMixin(ElementMixin):
         if hasattr(self, 'update'):
             await self.update() # type: ignore
         return await self.tab.query_selector(selector, self) # type: ignore
+
+    async def select_all(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> List[Element]:
+        """
+        Uses Chuscraper's advanced Selector engine to find child elements.
+        """
+        # Get outer HTML of this element
+        html = await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+        # Create adaptive selector for this sub-tree
+        scr_sel = ChuSelector(html, url=self.tab.url, adaptive=adaptive)
+        # Find elements
+        results = scr_sel.css(selector, identifier=identifier, adaptive=adaptive, auto_save=auto_save, percentage=percentage)
+        
+        elements = []
+        for res in results:
+            xpath = res.generate_xpath_selector
+            # Query relative to this element
+            found = await self.tab.query_selector_all(f"xpath:{xpath}", _node=self)
+            if found:
+                elements.extend(found)
+        return elements
+
+    async def select_one(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> Optional[Element]:
+        """Finds a single child element using Chuscraper's engine."""
+        res = await self.select_all(selector, adaptive, identifier, auto_save, percentage)
+        return res[0] if res else None
+
+    async def to_markdown(self) -> str:
+        """Converts this element to Markdown."""
+        html = await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+        sel = ChuSelector(html, url=self.tab.url)
+        content_gen = Convertor._extract_content(sel, extraction_type="markdown")
+        return "".join(content_gen)
+
+    async def to_text(self) -> str:
+        """Converts this element to plain text."""
+        html = await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+        sel = ChuSelector(html, url=self.tab.url)
+        content_gen = Convertor._extract_content(sel, extraction_type="text")
+        return "".join(content_gen)
 
     @property
     def parent(self) -> typing.Union[Element, None]:

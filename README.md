@@ -37,11 +37,18 @@ Chuscraper now supports scraping native Android apps using ADB:
 Chuscraper now includes an advanced **Auto-Update** and **Fingerprint Rotation** engine:
 - **Auto-Update Chrome Version:** Automatically detects your installed Chrome version and updates the User-Agent to match. No manual updates required!
 - **Fingerprint Rotation:** Randomizes hardware fingerprints (RAM, CPU, Screen Resolution) per session while strictly adhering to your host OS (Windows, macOS, Linux) to prevent OS mismatch detection.
-- **Client Hints Sync:** Automatically patches `navigator.userAgentData` to match the User-Agent string, preventing "Windows 10 vs 11" inconsistencies.
-- **Modern Timezones:** Automatically syncs browser timezone with IP location using modern IANA names (e.g., `Asia/Kolkata`).
+- **Client Hints Sync:** Automatically patches `navigator.userAgentData` to match the User-Agent string.
+- **Advanced Stealth Patches:** 6 core JS bypasses for WebDriver, Chrome Runtime, Canvas/WebGL noise, and iFrame leaks.
+- **Modern Timezones:** Automatically syncs browser timezone with IP location using modern IANA names.
 
 ### ⚡ Async + Fast
 Built on async CDP, low overhead, no heavy browser bundles.
+
+### 🔄 Advanced Selector & Extraction Engine (New!)
+Chuscraper now includes a high-performance parsing engine:
+- **Adaptive Selectors:** Save and automatically relocate elements even if the DOM structure changes.
+- **AI-Ready Extraction:** One-click conversion of pages or elements to clean **Markdown** or normalized **Text**.
+- **CSS & XPath Support:** Unified API for high-speed selection.
 
 ### 🔄 Flexible Outputs
 Supports JSON, CSV, Markdown, Excel, Pydantic, and more.
@@ -59,34 +66,30 @@ pip install chuscraper
 
 ---
 
-## 💻 Quick Start (The "Easy" Way)
-
-Chuscraper is designed for **Zero Boilerplate**. You don't need complex configuration objects just to start a stealthy session.
-
-### Example: Visiting a Protected Site (e.g., Nike/Amazon)
+### Example: Advanced Mode (Adaptive Stealth + Selectors)
 
 ```python
 import asyncio
 import chuscraper as zd
+from chuscraper.core.stealth import SystemProfile
 
 async def main():
-    # DIRECT START: Enable stealth mode to bypass detection
-    # 'stealth=True' automatically activates dynamic fingerprinting
-    async with await zd.start(headless=False, stealth=True) as browser:
-      
-        print(f"🚀 Browser started with Chrome Version: {browser.version}")
+    # Use standard Chrome via Browser.create
+    async with await zd.Browser.create(proxy="http://user:pass@host:port") as browser:
+        tab = await browser.get("https://www.makemytrip.com/hotels")
 
-        # Navigate to a protected site
-        page = await browser.goto("https://www.nike.com/launch")
+        # 1. Apply Industry-Leading Stealth
+        profile = SystemProfile.from_system(cookie_domain="makemytrip.com")
+        await profile.apply(tab)
 
-        # Wait for content to load
-        await page.wait_for("title")
-
-        title = await page.title()
-        print(f"✅ Successfully accessed: {title}")
-
-        # Take a screenshot to verify
-        await page.save_screenshot("nike_launch.jpg")
+        # 2. Use Adaptive Selectors (Resilient to DOM changes)
+        # 'adaptive=True' saves the element's properties for future relocation
+        hotels = await tab.select_all("h1.hotelName", adaptive=True)
+        
+        for hotel in hotels:
+            # 3. Use AI-Ready Extraction
+            print(await hotel.to_text())
+            print(await hotel.to_markdown())
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -105,9 +108,8 @@ Chuscraper gives you full control via `zd.start()`. Here are the powerful switch
 | Switch | Description | Default |
 | :--- | :--- | :--- |
 | `headless` | Run without a visible window (`True`/`False`) | `False` |
-| `stealth` | **Master Switch** for anti-detection features (dynamic fingerprint + webdriver hardening) | `False` |
-| `humanize` | Adds human-like startup warmup (mouse move + light wheel + natural jitter) | `False` |
-| `production_ready` | Enables safer retry/connect defaults for long-running jobs | `False` |
+| `stealth` | **Master Switch** for advanced anti-detection (System Fingerprints + JS Bypasses) | `False` |
+| `stealth_domain` | The domain used for cookie storage/loading in stealth mode | `""` |
 | `user_data_dir` | Path to save/load browser profile (keep logins/cookies) | `Temp` |
 | `proxy` | Proxy URL (e.g. `http://user:pass@host:port`) | `None` |
 
@@ -129,8 +131,6 @@ Chuscraper gives you full control via `zd.start()`. Here are the powerful switch
 | `retry_count` | Retry count | `3` |
 | `browser_connection_timeout` | Wait between connection attempts | `0.25` |
 | `browser_connection_max_tries` | Browser connection retries | `10` |
-| `humanize_min_delay` | Minimum humanization delay | `0.08` |
-| `humanize_max_delay` | Maximum humanization delay | `0.35` |
 
 ### 🕵️‍♂️ Granular Stealth Options
 When `stealth=True`, you can fine-tune specific patches by passing a `stealth_options` dict:

@@ -18,12 +18,17 @@ class ScreenshotMixin(TabMixin):
         if full_page:
             # CDP Page.get_layout_metrics for full page
             metrics = await self.send(self.cdp.page.get_layout_metrics())
-            width = metrics[0].content_size.width
-            height = metrics[0].content_size.height
+            # index 5 is cssContentSize which is more reliable for screenshots
+            content_size = metrics[5] 
+            width = content_size.width
+            height = content_size.height
             await self.send(self.cdp.emulation.set_device_metrics_override(
                 width=int(width), height=int(height), 
                 device_scale_factor=1, mobile=False
             ))
             
-        res = await self.send(self.cdp.page.capture_screenshot(format="png"))
+        res = await self.send(self.cdp.page.capture_screenshot(format_="png"))
+        if not res:
+             from ..connection import ProtocolException
+             raise ProtocolException("could not take screenshot")
         return base64.b64decode(res)

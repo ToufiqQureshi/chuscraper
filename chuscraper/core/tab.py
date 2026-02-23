@@ -13,7 +13,9 @@ import typing
 import urllib.parse
 import warnings
 import webbrowser
-from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, cast, Type, TypeVar
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, cast, Type, TypeVar, Iterable, Generator
+from chuscraper.engine.parser import Selector as ChuSelector, Selectors as ChuSelectors
+from chuscraper.engine.core.extract import Convertor
 
 from .intercept import BaseFetchInterception
 from .. import cdp
@@ -885,3 +887,43 @@ class Tab(
             extra = f"[url: {self.target.url}]"
         s = f"<{type(self).__name__} [{self.target_id}] [{self.type_}] {extra}>"
         return s
+    async def select_all(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> List[element.Element]:
+        """
+        Uses Chuscraper's advanced Selector engine to find elements.
+        Supports adaptive selectors if 'adaptive' is True.
+        Returns a list of live Chuscraper Element objects.
+        """
+        html = await self.get_content()
+        # Create adaptive selector
+        scr_sel = ChuSelector(html, url=self.url, adaptive=adaptive)
+        # Find elements using the engine
+        results = scr_sel.css(selector, identifier=identifier, adaptive=adaptive, auto_save=auto_save, percentage=percentage)
+        
+        elements = []
+        for res in results:
+            xpath = res.generate_xpath_selector
+            # Use Chuscraper's existing query_selector with xpath
+            # We need to escape the xpath for CDP
+            found = await self.query_selector_all(f"xpath:{xpath}")
+            if found:
+                elements.extend(found)
+        return elements
+
+    async def select_one(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> Optional[element.Element]:
+        """Finds a single element using Chuscraper's engine."""
+        res = await self.select_all(selector, adaptive, identifier, auto_save, percentage)
+        return res[0] if res else None
+
+    async def to_markdown(self, selector: Optional[str] = None, main_content_only: bool = False) -> str:
+        """Converts the page (or a selected part) to Markdown."""
+        html = await self.get_content()
+        sel = ChuSelector(html, url=self.url)
+        content_gen = Convertor._extract_content(sel, extraction_type="markdown", css_selector=selector, main_content_only=main_content_only)
+        return "".join(content_gen)
+
+    async def to_text(self, selector: Optional[str] = None, main_content_only: bool = False) -> str:
+        """Converts the page (or a selected part) to plain text."""
+        html = await self.get_content()
+        sel = ChuSelector(html, url=self.url)
+        content_gen = Convertor._extract_content(sel, extraction_type="text", css_selector=selector, main_content_only=main_content_only)
+        return "".join(content_gen)

@@ -25,8 +25,6 @@ AUTO = None
 
 BrowserType = Literal["chrome", "brave", "auto"]
 
-
-
 class Config:
     """
     Config object
@@ -56,16 +54,6 @@ class Config:
         retry_count: int = 3,
         **kwargs: Any,
     ):
-        """
-        creates a config object.
-        ...
-        :param logging: enables basic logging
-        :param retry_enabled: enables automatic retries
-        :param retry_timeout: timeout for retries
-        :param retry_count: number of retries
-        :param kwargs:
-        """
-
         if not browser_args:
             browser_args = []
 
@@ -96,7 +84,6 @@ class Config:
         self.retry_timeout = retry_timeout
         self.retry_count = retry_count
 
-        # ... (rest of the logic)
         if is_posix and is_root() and sandbox:
             logger.info("detected root usage, auto disabling sandbox mode")
             self.sandbox = False
@@ -128,12 +115,6 @@ class Config:
             "--disable-blink-features=AutomationControlled",
             "--disable-session-crashed-bubble",
             "--disable-search-engine-choice-screen",
-            # GPU/WebGL Hardening
-            "--use-gl=angle",
-            "--enable-webgl",
-            "--ignore-gpu-blocklist",
-            "--enable-accelerated-2d-canvas",
-            # Default window size to avoid 800x600 detection
             "--window-size=1920,1080",
         ]
 
@@ -143,16 +124,9 @@ class Config:
 
     @property
     def user_data_dir(self) -> str:
-        """
-        Get the user data dir or lazily create a new one if unset.
-
-        Returns:
-            str: User data directory (used for Chrome profile)
-        """
         if not self._user_data_dir:
             self._user_data_dir = temp_profile_dir()
             self._custom_data_dir = False
-
         return self._user_data_dir
 
     @user_data_dir.setter
@@ -169,58 +143,35 @@ class Config:
         return self._custom_data_dir
 
     def add_extension(self, extension_path: PathLike) -> None:
-        """
-        adds an extension to load, you could point extension_path
-        to a folder (containing the manifest), or extension file (crx)
-
-        :param extension_path:
-        :return:
-        :rtype:
-        """
         path = pathlib.Path(extension_path)
-
         if not path.exists():
             raise FileNotFoundError("could not find anything here: %s" % str(path))
-
         if path.is_file():
             tf = tempfile.mkdtemp(prefix="extension_", suffix=secrets.token_hex(4))
             with zipfile.ZipFile(path, "r") as z:
                 z.extractall(tf)
                 self._extensions.append(tf)
-
         elif path.is_dir():
             for item in path.rglob("manifest.*"):
                 path = item.parent
             self._extensions.append(path)
 
-    # def __getattr__(self, item):
-    #     if item not in self.__dict__:
-
     def __call__(self) -> list[str]:
-        # the host and port will be added when starting
-        # the browser, as by the time it starts, the port
-        # is probably already taken
         args = self._default_browser_args.copy()
+        args.append(f"--user-data-dir={self.user_data_dir}")
 
-        args += ["--user-data-dir=%s" % self.user_data_dir]
-        args += ["--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch"]
-        args += ["--disable-blink-features=AutomationControlled"]
-        args += ["--disable-session-crashed-bubble"]
-
-        # Filter out dangerous flags that trigger detection
         if self._browser_args:
-            safe_args = []
             for arg in self._browser_args:
                 if "disable-blink-features=AutomationControlled" in arg:
-                    continue # Skip this flag as it triggers infobars and detection
+                    continue
                 if arg not in args:
-                    safe_args.append(arg)
-            args.extend(safe_args)
-=======
-            args.extend([arg for arg in self._browser_args if arg not in args and "enable-automation" not in arg])
+                    args.append(arg)
+
         if self.headless:
             args.append("--headless=new")
         if self.user_agent:
+            # Overwrite default UA if set
+            args = [a for a in args if not a.startswith("--user-agent=")]
             args.append(f"--user-agent={self.user_agent}")
         if not self.sandbox:
             args.append("--no-sandbox")
@@ -237,107 +188,54 @@ class Config:
             args += ["--disable-webgl", "--disable-webgl2"]
 
         if self.proxy:
-             # Always add proxy-server arg as a reliable fallback.
              import urllib.parse
              temp_proxy = self.proxy
              if "://" not in temp_proxy:
                  temp_proxy = "http://" + temp_proxy
-                 
              p = urllib.parse.urlparse(temp_proxy)
              if p.hostname:
                  if p.port:
                     args.append(f"--proxy-server={p.hostname}:{p.port}")
                  else:
                     args.append(f"--proxy-server={p.hostname}")
-
         return args
 
     def add_argument(self, arg: str) -> None:
-        if any(
-            x in arg.lower()
-            for x in [
-                "headless",
-                "data-dir",
-                "data_dir",
-                "no-sandbox",
-                "no_sandbox",
-                "lang",
-            ]
-        ):
-            raise ValueError(
-                '"%s" not allowed. please use one of the attributes of the Config object to set it'
-                % arg
-            )
+        if any(x in arg.lower() for x in ["headless", "data-dir", "data_dir", "no-sandbox", "no_sandbox", "lang"]):
+            raise ValueError('"%s" not allowed. please use one of the attributes of the Config object to set it' % arg)
         self._browser_args.append(arg)
 
     def __repr__(self) -> str:
         s = f"{self.__class__.__name__}"
         for k, v in ({**self.__dict__, **self.__class__.__dict__}).items():
-            if k[0] == "_":
-                continue
-            if not v:
-                continue
-            if isinstance(v, property):
-                v = getattr(self, k)
-            if callable(v):
+            if k[0] == "_" or not v or isinstance(v, property) or callable(v):
                 continue
             s += f"\n\t{k} = {v}"
         return s
 
-    #     d = self.__dict__.copy()
-    #     d.pop("browser_args")
-    #     d["browser_args"] = self()
-    #     return d
-
-
 def is_root() -> bool:
-    """
-    helper function to determine if user trying to launch chrome
-    under linux as root, which needs some alternative handling
-    :return:
-    :rtype:
-    """
     if sys.platform == "win32":
         return ctypes.windll.shell32.IsUserAnAdmin() != 0
     else:
         return os.getuid() == 0
 
-
 def temp_profile_dir() -> str:
-    """generate a temp dir (path)"""
     path = os.path.normpath(tempfile.mkdtemp(prefix="uc_"))
     return path
-
 
 def find_binary(candidates: list[str]) -> str | None:
     rv: list[str] = []
     for candidate in candidates:
         if os.path.exists(candidate) and os.access(candidate, os.X_OK):
-            logger.debug("%s is a valid candidate... " % candidate)
             rv.append(candidate)
-        else:
-            logger.debug(
-                "%s is not a valid candidate because don't exist or not executable "
-                % candidate
-            )
-
     winner: str | None = None
     if rv and len(rv) > 1:
-        # assuming the shortest path wins
         winner = min(rv, key=lambda x: len(x))
-
     elif len(rv) == 1:
         winner = rv[0]
-
     return winner
 
-
 def find_executable(browser: BrowserType = "auto") -> PathLike:
-    """
-    Finds the executable for the specified browser and returns its disk path.
-    :param browser: The browser to find. Can be "chrome", "brave" or "auto".
-    :return: The path to the browser executable.
-    """
     browsers_to_try = []
     if browser == "auto":
         browsers_to_try = ["chrome", "brave"]
@@ -351,66 +249,29 @@ def find_executable(browser: BrowserType = "auto") -> PathLike:
         if browser_name == "chrome":
             if is_posix:
                 for item in os.environ["PATH"].split(os.pathsep):
-                    for subitem in (
-                        "google-chrome",
-                        "chromium",
-                        "chromium-browser",
-                        "chrome",
-                        "google-chrome-stable",
-                    ):
+                    for subitem in ("google-chrome", "chromium", "chromium-browser", "chrome", "google-chrome-stable"):
                         candidates.append(os.sep.join((item, subitem)))
                 if "darwin" in sys.platform:
-                    candidates += [
-                        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-                    ]
+                    candidates += ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"]
             else:
-                for item2 in map(
-                    os.environ.get,
-                    (
-                        "PROGRAMFILES",
-                        "PROGRAMFILES(X86)",
-                        "LOCALAPPDATA",
-                        "PROGRAMW6432",
-                    ),
-                ):
+                for item2 in map(os.environ.get, ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA", "PROGRAMW6432")):
                     if item2 is not None:
-                        for subitem in (
-                            "Google/Chrome/Application",
-                            "Google/Chrome Beta/Application",
-                            "Google/Chrome Canary/Application",
-                            "Google/Chrome SxS/Application",
-                        ):
-                            candidates.append(
-                                os.sep.join((item2, subitem, "chrome.exe"))
-                            )
+                        for subitem in ("Google/Chrome/Application", "Google/Chrome Beta/Application", "Google/Chrome Canary/Application", "Google/Chrome SxS/Application"):
+                            candidates.append(os.sep.join((item2, subitem, "chrome.exe")))
         elif browser_name == "brave":
             if is_posix:
                 for item in os.environ["PATH"].split(os.pathsep):
-                    for subitem in (
-                        "brave-browser",
-                        "brave",
-                    ):
+                    for subitem in ("brave-browser", "brave"):
                         candidates.append(os.sep.join((item, subitem)))
                 if "darwin" in sys.platform:
-                    candidates.append(
-                        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
-                    )
+                    candidates.append("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser")
             else:
-                for item2 in map(
-                    os.environ.get,
-                    ("PROGRAMFILES", "PROGRAMFILES(X86)"),
-                ):
+                for item2 in map(os.environ.get, ("PROGRAMFILES", "PROGRAMFILES(X86)")):
                     if item2 is not None:
                         for subitem in ("BraveSoftware/Brave-Browser/Application",):
-                            candidates.append(
-                                os.sep.join((item2, subitem, "brave.exe"))
-                            )
+                            candidates.append(os.sep.join((item2, subitem, "brave.exe")))
         winner = find_binary(candidates)
         if winner:
             return os.path.normpath(winner)
 
-    raise FileNotFoundError(
-        "could not find a valid browser binary. please make sure it is installed "
-        "or use the keyword argument 'browser_executable_path=/path/to/your/browser' "
-    )
+    raise FileNotFoundError("could not find a valid browser binary. please make sure it is installed or use browser_executable_path")
