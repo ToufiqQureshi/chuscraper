@@ -7,8 +7,8 @@ from chuscraper.engine.core._types import Dict, Literal, Tuple, cast
 
 __OS_NAME__ = platform_system()
 OSName = Literal["linux", "macos", "windows"]
-chromium_version = 141
-chrome_version = 143
+chromium_version = 144
+chrome_version = 145
 
 @lru_cache(10, typed=True)
 def generate_convincing_referer(url: str) -> str | None:
@@ -27,9 +27,9 @@ def get_os_name() -> OSName | Tuple:
         case "Windows": return "windows"
         case _: return SUPPORTED_OPERATING_SYSTEMS
 
-def generate_headers(browser_mode: bool | str = False) -> Dict:
+def generate_headers(browser_mode: bool | str = False, version: int | None = None) -> Dict:
     os_name = get_os_name()
-    ver = chrome_version if browser_mode and browser_mode == "chrome" else chromium_version
+    ver = version if version else (chrome_version if browser_mode and browser_mode == "chrome" else chromium_version)
     browsers = [Browser(name="chrome", min_version=ver, max_version=ver)]
     if not browser_mode:
         os_name = ("windows", "macos", "linux")

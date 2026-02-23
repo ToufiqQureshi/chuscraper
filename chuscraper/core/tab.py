@@ -927,3 +927,14 @@ class Tab(
         sel = ChuSelector(html, url=self.url)
         content_gen = Convertor._extract_content(sel, extraction_type="text", css_selector=selector, main_content_only=main_content_only)
         return "".join(content_gen)
+    async def get_browser_version(self, full: bool = False) -> int | str:
+        """Fetches the version of the browser kernel via CDP."""
+        try:
+            ver_info = await self.send(cdp.browser.get_version())
+            match = re.search(r'Chrome/([\d.]+)', ver_info.product)
+            if match:
+                full_v = match.group(1)
+                return full_v if full else int(full_v.split('.')[0])
+        except Exception as e:
+            logger.debug(f"Failed to fetch browser version: {e}")
+        return "145.0.0.0" if full else 145  # Safe fallback for current builds

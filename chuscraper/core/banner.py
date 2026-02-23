@@ -23,7 +23,8 @@ def print_banner():
     if not sys.stdout.isatty():
         CYAN = GREEN = RESET = BOLD = ""
 
-    version = "0.19.3"
+    from .. import __version__
+    version = __version__
 
     banner = f"""{CYAN}
    ________  __  _______ __________  ___    ____  __________

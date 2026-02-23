@@ -8,7 +8,7 @@ from chuscraper.engine.core.utils import log
 from chuscraper.engine.core._types import Dict, Set, Tuple, Optional, Callable
 from chuscraper.engine.engines.constants import EXTRA_RESOURCES
 
-__BYPASSES_DIR__ = Path(__file__).parent / "bypasses"
+__BYPASSES_DIR__ = Path(__file__).parents[2] / "bypasses"
 
 class ProxyDict(Struct):
     server: str
