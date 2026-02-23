@@ -125,6 +125,7 @@ class Config:
             "--disable-background-networking",
             "--disable-dev-shm-usage",
             "--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch",
+            "--disable-blink-features=AutomationControlled",
             "--disable-session-crashed-bubble",
             "--disable-search-engine-choice-screen",
             # GPU/WebGL Hardening
@@ -203,6 +204,7 @@ class Config:
 
         args += ["--user-data-dir=%s" % self.user_data_dir]
         args += ["--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch"]
+        args += ["--disable-blink-features=AutomationControlled"]
         args += ["--disable-session-crashed-bubble"]
 
         # Filter out dangerous flags that trigger detection
@@ -214,6 +216,8 @@ class Config:
                 if arg not in args:
                     safe_args.append(arg)
             args.extend(safe_args)
+=======
+            args.extend([arg for arg in self._browser_args if arg not in args and "enable-automation" not in arg])
         if self.headless:
             args.append("--headless=new")
         if self.user_agent:
