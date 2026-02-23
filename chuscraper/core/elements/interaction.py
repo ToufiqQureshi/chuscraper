@@ -6,6 +6,7 @@ import json
 import logging
 import typing
 import random
+import math
 
 from ... import cdp
 from .. import util
@@ -17,6 +18,12 @@ if TYPE_CHECKING:
     from .._contradict import ContraDict
 
 logger = logging.getLogger(__name__)
+
+def cubic_bezier(t: float, p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float], p3: tuple[float, float]) -> tuple[float, float]:
+    """Calculate point on a cubic bezier curve at time t (0.0 to 1.0)"""
+    x = (1-t)**3 * p0[0] + 3*(1-t)**2 * t * p1[0] + 3*(1-t) * t**2 * p2[0] + t**3 * p3[0]
+    y = (1-t)**3 * p0[1] + 3*(1-t)**2 * t * p1[1] + 3*(1-t) * t**2 * p2[1] + t**3 * p3[1]
+    return (x, y)
 
 class Position(cdp.dom.Quad):
     """helper class for element positioning"""
@@ -54,7 +61,6 @@ class Position(cdp.dom.Quad):
 class ElementInteractionMixin(ElementMixin):
     """Mixin for Element interactions."""
     
-    # We need to define _remote_object here or in base, it's used heavily
     _remote_object: cdp.runtime.RemoteObject | None
 
     @property
@@ -68,23 +74,11 @@ class ElementInteractionMixin(ElementMixin):
         return self._remote_object
 
     async def update(self, _node: cdp.dom.Node | None = None) -> Element:
-        # This implementation requires access to self._node, self._tree, self._remote_object
-        # It updates them logic implies it should be in the main Element class OR 
-        # we define the logic here and Element uses it. 
-        # Given it relies on internal state _node/_tree extensively, maybe keep in Element?
-        # But wait, query methods call update().
-        # Let's keep logic here but assume setters/properties exist or direct access 
-        # (in python we can access protected members)
-        
-        # NOTE: For mixin refactoring, update() is central. I will implement it here using self._node etc
-        # assuming the main class provides them.
-        
         if _node:
             doc = _node
         else:
             doc = await self.tab.send(cdp.dom.get_document(-1, True))
         
-        # We need self._node access. 
         current_node = getattr(self, '_node')
         updated_node = util.filter_recurse(
             doc, lambda n: n.backend_node_id == current_node.backend_node_id
@@ -101,19 +95,12 @@ class ElementInteractionMixin(ElementMixin):
         setattr(self, '_remote_object', new_remote_obj)
         
         self.attrs.clear()
-        # call self._make_attrs()
         if hasattr(self, '_make_attrs'):
             self._make_attrs() # type: ignore
             
         return self # type: ignore
 
     async def save_to_dom(self) -> None:
-        """
-        saves element to dom
-        :return:
-        :rtype:
-        """
-        # We need to set _remote_object
         ro = await self.tab.send(
             cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
         )
@@ -122,8 +109,7 @@ class ElementInteractionMixin(ElementMixin):
         await self.update()
 
     async def remove_from_dom(self) -> None:
-        """removes the element from dom"""
-        await self.update()  # ensure we have latest node_id
+        await self.update()
         if not self.tree:
             raise RuntimeError(
                 "could not remove from dom since the element has no tree set"
@@ -174,46 +160,134 @@ class ElementInteractionMixin(ElementMixin):
         target_x, target_y = pos.center
         
         if mode == "human":
-            # Simple linear mouse path from last position to target
+            # Add small random offset to target to avoid clicking exact center every time
+            # Assuming elements are usually larger than 1x1, limit offset to stay inside
+            offset_x = random.uniform(-pos.width/4, pos.width/4)
+            offset_y = random.uniform(-pos.height/4, pos.height/4)
+            target_x += offset_x
+            target_y += offset_y
+
+            # Retrieve last mouse position from Tab state
             last_x = getattr(self.tab, '_last_mouse_x', 0)
             last_y = getattr(self.tab, '_last_mouse_y', 0)
             
-            # Generate a few mid-points for a slightly natural path
-            steps = max(5, int(((target_x - last_x)**2 + (target_y - last_y)**2)**0.5 // 20))
+            # Distance check
+            dist = math.hypot(target_x - last_x, target_y - last_y)
+
+            # Bezier Control Points
+            if dist > 10:
+                # Perpendicular vector for randomness
+                ux = (target_x - last_x) / dist
+                uy = (target_y - last_y) / dist
+                px = -uy
+                py = ux
+
+                # Deviation amount scales with distance
+                deviation = min(dist/3, 150) * random.uniform(-1, 1)
+
+                p1 = (last_x + (target_x - last_x)/3 + px * deviation,
+                      last_y + (target_y - last_y)/3 + py * deviation)
+                p2 = (last_x + 2*(target_x - last_x)/3 + px * deviation,
+                      last_y + 2*(target_y - last_y)/3 + py * deviation)
+            else:
+                p1 = (last_x, last_y)
+                p2 = (target_x, target_y)
+
+            # More steps for longer distances, min 25 steps for smoothness
+            steps = max(25, int(dist / 7))
+
             for i in range(1, steps + 1):
-                mx = last_x + (target_x - last_x) * i / steps
-                my = last_y + (target_y - last_y) * i / steps
+                t = i / steps
+                # Ease-in-out function for realistic acceleration/deceleration
+                # smoothstep: t * t * (3 - 2 * t)
+                t_eased = t * t * (3 - 2 * t)
+
+                mx, my = cubic_bezier(t_eased, (last_x, last_y), p1, p2, (target_x, target_y))
+
                 await self.tab.send(cdp.input_.dispatch_mouse_event(
                     type_="mouseMoved", x=mx, y=my
                 ))
+
+                # Update last mouse position on tab
+                self.tab._last_mouse_x = mx
+                self.tab._last_mouse_y = my
+
+                # Micro-sleeps every few steps to simulate processing/friction
+                if i % random.randint(3, 7) == 0:
+                    await asyncio.sleep(random.uniform(0.0005, 0.002))
             
-            # Click
+            # Click with human duration
             await self.tab.send(cdp.input_.dispatch_mouse_event(
                 type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
             ))
-            await asyncio.sleep(random.uniform(0.05, 0.15))
+
+            # Human click hold duration: 60ms to 150ms
+            await asyncio.sleep(random.uniform(0.06, 0.15))
+
+            await self.tab.send(cdp.input_.dispatch_mouse_event(
+                type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
+            ))
+
+        else:
+            # Fallback for "cdp" mode (instant but using mouse events)
+            await self.tab.send(cdp.input_.dispatch_mouse_event(
+                type_="mouseMoved", x=target_x, y=target_y
+            ))
+            await self.tab.send(cdp.input_.dispatch_mouse_event(
+                type_="mousePressed", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
+            ))
             await self.tab.send(cdp.input_.dispatch_mouse_event(
                 type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
             ))
 
     async def fill(self, text: str) -> None:
-        await self.click(mode="cdp")  # Focus
+        await self.click(mode="human")  # Use human click to focus
         await self.clear_input()
-        await self.send_keys(text)
+        await self.type(text) # Calls upgraded type method
 
     async def type(self, text: str, delay: float = 0.0) -> None:
-        """Alias for send_keys with optional delay per char."""
-        if delay > 0:
-            for char in text:
-                await self.send_keys(char)
-                await asyncio.sleep(delay)
-        else:
-            await self.send_keys(text)
+        """Human-like typing with variable delays and mistakes"""
+        # Initial "thinking" pause before typing starts
+        await asyncio.sleep(random.uniform(0.1, 0.4))
+
+        for char in text:
+            # 3% chance of mistake if text length > 5
+            if len(text) > 5 and random.random() < 0.03:
+                # Type a random wrong character
+                wrong_char = chr(ord(char) + random.choice([-1, 1]))
+                await self.send_keys(wrong_char)
+                await asyncio.sleep(random.uniform(0.1, 0.25))
+                # Backspace
+                await self.send_keys(SpecialKeys.BACKSPACE)
+                await asyncio.sleep(random.uniform(0.1, 0.2))
             
+            await self.send_keys(char)
+
+            # Human typing rhythm: average ~100-150ms between keys, normal distribution
+            # Fast typist: 60-100ms, Slow: 150-250ms. Let's aim for "Average Internet User" ~120ms
+            base_delay = 0.12
+            variation = 0.04
+
+            d = random.gauss(base_delay, variation)
+            d = max(0.03, min(d, 0.35)) # Clamp to realistic bounds
+
+            await asyncio.sleep(d + delay)
+
     async def send_keys(
         self, text: typing.Union[str, SpecialKeys, typing.List[KeyEvents.Payload]]
     ) -> None:
+        # We don't force focus() here every time because it breaks the flow if called repeatedly in type()
+        # Instead, we assume focus is set by click() or caller.
+        # But for robustness, we can check if focused? No, CDP doesn't easily tell us.
+        # The old code called focus() every time. Let's keep it but maybe optimize?
+        # Actually, focus() every char might be weird/slow.
+        # But removing it might break tests if they rely on send_keys focusing.
+        # Let's keep it but make it check if we just clicked it.
+        # For now, safe to leave as is, just overhead.
+
+        # NOTE: Keeping focus() call for safety
         await self.apply("(elem) => elem.focus()")
+
         cluster_list: typing.List[KeyEvents.Payload]
         if isinstance(text, str):
             cluster_list = KeyEvents.from_text(text, KeyPressEvent.CHAR)
@@ -314,10 +388,7 @@ class ElementInteractionMixin(ElementMixin):
         if not self.node_type == 3:
             if self.child_node_count == 1:
                 child_node = self.children[0]
-                if not isinstance(child_node, type(self)): # Check against Element type via self type
-                     # But self.children returns List[Element], so child_node IS Element
-                     # The original code: if not isinstance(child_node, Element):
-                     # keep it safe
+                if not isinstance(child_node, type(self)):
                      pass
                 await child_node.set_text(value)
                 await self.update()
@@ -497,8 +568,29 @@ class ElementInteractionMixin(ElementMixin):
             else:
                 end_point = destination
 
-        from ..humanizer import Humanizer
+        # Use bezier for dragging too, reusing simple logic for now but improving steps
+        # NOTE: mouse_drag is separate from click, could use same cubic_bezier logic
+        # But for now, just keep the linear loop but with more noise/pauses if desired.
+        # Given "human" priority, I should apply bezier here too.
         
+        last_x, last_y = start_point
+        target_x, target_y = end_point
+
+        dist = math.hypot(target_x - last_x, target_y - last_y)
+        if dist > 10:
+             ux = (target_x - last_x) / dist
+             uy = (target_y - last_y) / dist
+             px = -uy
+             py = ux
+             deviation = min(dist/4, 100) * random.uniform(-1, 1)
+             p1 = (last_x + (target_x - last_x)/3 + px * deviation, last_y + (target_y - last_y)/3 + py * deviation)
+             p2 = (last_x + 2*(target_x - last_x)/3 + px * deviation, last_y + 2*(target_y - last_y)/3 + py * deviation)
+        else:
+             p1 = (last_x, last_y)
+             p2 = (target_x, target_y)
+
+        steps = max(30, int(dist / 5))
+
         await self.tab.send(
             cdp.input_.dispatch_mouse_event(
                 "mousePressed",
@@ -508,18 +600,20 @@ class ElementInteractionMixin(ElementMixin):
             )
         )
 
-        num_steps = steps or max(10, int(((end_point[0] - start_point[0])**2 + (end_point[1] - start_point[1])**2)**0.5 // 10))
-        for i in range(1, num_steps + 1):
-            x = start_point[0] + (end_point[0] - start_point[0]) * i / num_steps
-            y = start_point[1] + (end_point[1] - start_point[1]) * i / num_steps
+        for i in range(1, steps + 1):
+            t = i / steps
+            t_eased = t * t * (3 - 2 * t)
+            mx, my = cubic_bezier(t_eased, (last_x, last_y), p1, p2, (target_x, target_y))
+
             await self.tab.send(
                 cdp.input_.dispatch_mouse_event(
                     "mouseMoved",
-                    x=x,
-                    y=y,
+                    x=mx,
+                    y=my,
                 )
             )
-            if random.random() > 0.9:
+            # Add drag-specific noise/pauses
+            if random.random() > 0.95:
                 await asyncio.sleep(random.uniform(0.001, 0.005))
 
         await self.tab.send(
@@ -539,4 +633,3 @@ class ElementInteractionMixin(ElementMixin):
         except Exception as e:
             logger.debug("could not scroll into view: %s", e)
             return
-
