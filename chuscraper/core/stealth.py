@@ -187,14 +187,9 @@ class SystemProfile:
         configurable: true
     }});
 
-    // ── 2. Timezone Hardening ────────────────────────────────────────────────
-    const targetTZ = '{self.timezone}';
-    const originalResolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions;
-    Intl.DateTimeFormat.prototype.resolvedOptions = function() {{
-        const options = originalResolvedOptions.apply(this);
-        options.timeZone = targetTZ;
-        return options;
-    }};
+    // ── 2. Timezone Hardening (Removed JS override, handled via CDP) ─────────
+    // Overriding Intl.DateTimeFormat in JS is detectable via toString().
+    // We rely on Emulation.setTimezoneOverride which is safer.
 
     // ── 3. Plugins & MimeTypes (Pass instanceof check) ───────────────────────
     const createPlugin = (data) => {{
@@ -237,6 +232,10 @@ class SystemProfile:
     Object.defineProperty(screen, 'height', {{ get: () => sh, configurable: true }});
     Object.defineProperty(screen, 'availWidth', {{ get: () => sw, configurable: true }});
     Object.defineProperty(screen, 'availHeight', {{ get: () => sh - 40, configurable: true }});
+
+    // Match window outer dimensions to screen
+    Object.defineProperty(window, 'outerWidth', {{ get: () => sw, configurable: true }});
+    Object.defineProperty(window, 'outerHeight', {{ get: () => sh - 40, configurable: true }});
 
     // ── 7. Restore window.chrome ─────────────────────────────────────────────
     if (!window.chrome) {{
