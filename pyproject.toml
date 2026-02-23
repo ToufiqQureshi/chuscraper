@@ -38,6 +38,8 @@ dependencies = [
     "msgspec>=0.18.0",
     "tld>=0.13.0",
     "markdownify>=0.13.0",
+    "w3lib>=2.1.2",
+    "typing-extensions>=4.0.0",
 ]
 
 [project.urls]
