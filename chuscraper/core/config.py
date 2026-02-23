@@ -132,6 +132,8 @@ class Config:
             "--enable-webgl",
             "--ignore-gpu-blocklist",
             "--enable-accelerated-2d-canvas",
+            # Default window size to avoid 800x600 detection
+            "--window-size=1920,1080",
         ]
 
     @property
@@ -202,8 +204,16 @@ class Config:
         args += ["--user-data-dir=%s" % self.user_data_dir]
         args += ["--disable-features=IsolateOrigins,site-per-process,DisableLoadExtensionCommandLineSwitch"]
         args += ["--disable-session-crashed-bubble"]
+
+        # Filter out dangerous flags that trigger detection
         if self._browser_args:
-            args.extend([arg for arg in self._browser_args if arg not in args])
+            safe_args = []
+            for arg in self._browser_args:
+                if "disable-blink-features=AutomationControlled" in arg:
+                    continue # Skip this flag as it triggers infobars and detection
+                if arg not in args:
+                    safe_args.append(arg)
+            args.extend(safe_args)
         if self.headless:
             args.append("--headless=new")
         if self.user_agent:
