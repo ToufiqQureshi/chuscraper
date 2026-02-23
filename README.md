@@ -9,9 +9,18 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/chuscraper/"><img src="https://static.pepy.tech/personalized-badge/chuscraper?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads"/></a>
-  <a href="https://opensource.org/licenses/AGPL-3.0"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=for-the-badge"/></a>
-  <a href="https://github.com/ToufiqQureshi/chuscraper"><img src="https://img.shields.io/badge/GitHub-Trending-blue?style=for-the-badge&logo=github"/></a>
+<a href="https://deepwiki.com/ToufiqQureshi/chuscraper"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+
+<p align="center">
+  <a href="https://opensource.org/licenses/AGPL-3.0">
+    <img src="https://img.shields.io/badge/License-AGPL_v3-1f6feb?style=for-the-badge&logo=gnu&logoColor=white" />
+  </a>
+  <a href="https://github.com/ToufiqQureshi/chuscraper">
+    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white" />
+  </a>
+  <img src="https://img.shields.io/github/stars/ToufiqQureshi/chuscraper?style=for-the-badge&logo=github" />
+  <img src="https://img.shields.io/github/forks/ToufiqQureshi/chuscraper?style=for-the-badge&logo=github" />
+</p>
 </p>
 
 ---
