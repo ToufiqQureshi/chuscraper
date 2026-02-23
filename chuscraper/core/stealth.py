@@ -14,6 +14,7 @@ import platform
 import re
 import sys
 import time
+import random
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional
 
@@ -42,7 +43,7 @@ def _get_screen_size() -> tuple[int, int]:
                 return w, h
     except Exception:
         pass
-    return 1366, 768
+    return 1920, 1080
 
 
 def _get_timezone() -> str:
@@ -84,7 +85,7 @@ def _get_language() -> str:
             return lang.replace("_", "-")
     except Exception:
         pass
-    return "en-IN"
+    return "en-US"
 
 
 def _get_chrome_version(executable_path: Optional[str] = None) -> str:
@@ -122,20 +123,30 @@ def _get_platform_string() -> str:
 
 @dataclass
 class SystemProfile:
-    screen_width: int = 1536
-    screen_height: int = 864
+    screen_width: int = 1920
+    screen_height: int = 1080
     timezone: str = "Asia/Kolkata"
-    language: str = "en-IN"
+    language: str = "en-US"
     platform: str = "Win32"
-    cpu_count: int = 12
+    cpu_count: int = 8
     chrome_version: str = "124.0.0.0"
     user_agent: str = ""
     cookie_domain: str = ""
     cookie_dir: pathlib.Path = field(default_factory=lambda: COOKIE_DIR)
 
+    # Noise seeds
+    noise_seed_r: int = 0
+    noise_seed_g: int = 0
+    noise_seed_b: int = 0
+
     def __post_init__(self) -> None:
         if not self.user_agent:
             self.user_agent = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{self.chrome_version} Safari/537.36"
+
+        # Initialize random noise if zero (default)
+        if self.noise_seed_r == 0: self.noise_seed_r = random.randint(-1, 1) or 1
+        if self.noise_seed_g == 0: self.noise_seed_g = random.randint(-1, 1) or -1
+        if self.noise_seed_b == 0: self.noise_seed_b = random.randint(-1, 1) or 0
 
     @classmethod
     def from_system(cls, *, cookie_domain: str = "", chrome_executable: Optional[str] = None) -> "SystemProfile":
@@ -178,20 +189,40 @@ class SystemProfile:
     def _build_stealth_script(self) -> str:
         lang = self.language
         lang_short = lang.split("-")[0]
+
         return f"""
 (function() {{
+    const NOISE_R = {self.noise_seed_r};
+    const NOISE_G = {self.noise_seed_g};
+    const NOISE_B = {self.noise_seed_b};
+
     // ── 1. Webdriver Hardening ──────────────────────────────────────────────
-    // Instead of deleting, define it as false with a dummy getter.
-    Object.defineProperty(Navigator.prototype, 'webdriver', {{
-        get: () => false,
-        configurable: true
-    }});
+    // Ensure navigator.webdriver is false and deep in prototype
+    try {{
+        Object.defineProperty(navigator, 'webdriver', {{
+            get: () => false,
+        }});
+    }} catch (e) {{}}
 
-    // ── 2. Timezone Hardening (Removed JS override, handled via CDP) ─────────
-    // Overriding Intl.DateTimeFormat in JS is detectable via toString().
-    // We rely on Emulation.setTimezoneOverride which is safer.
+    try {{
+        Object.defineProperty(Navigator.prototype, 'webdriver', {{
+            get: () => false,
+        }});
+    }} catch (e) {{}}
 
-    // ── 3. Plugins & MimeTypes (Pass instanceof check) ───────────────────────
+
+    // ── 2. Chrome Runtime ───────────────────────────────────────────────────
+    if (!window.chrome) {{
+        window.chrome = {{
+            runtime: {{}},
+            loadTimes: () => ({{}}),
+            csi: () => ({{}}),
+            app: {{ isInstalled: false }}
+        }};
+    }}
+
+    // ── 3. Plugins & MimeTypes ──────────────────────────────────────────────
+    // Construct fake plugins to match Chrome
     const createPlugin = (data) => {{
         const p = Object.create(Plugin.prototype);
         Object.assign(p, data);
@@ -204,17 +235,16 @@ class SystemProfile:
     ];
     const plugins = pluginData.map(createPlugin);
     
-    Object.defineProperty(navigator, 'plugins', {{
-        get: () => {{
-            const p = Object.create(PluginArray.prototype);
-            plugins.forEach((pl, i) => p[i] = pl);
-            p.length = plugins.length;
-            p.item = (i) => plugins[i];
-            p.namedItem = (n) => plugins.find(x => x.name === n);
-            return p;
-        }},
-        configurable: true
-    }});
+    const pArray = Object.create(PluginArray.prototype);
+    plugins.forEach((pl, i) => pArray[i] = pl);
+    pArray.length = plugins.length;
+    pArray.item = (i) => plugins[i];
+    pArray.namedItem = (n) => plugins.find(x => x.name === n);
+    pArray.refresh = () => {{}};
+
+    Object.defineProperty(navigator, 'plugins', {{ get: () => pArray }});
+    Object.defineProperty(navigator, 'mimeTypes', {{ get: () => Object.create(MimeTypeArray.prototype) }}); // Simplified mime types for now
+
 
     // ── 4. Hardware and Memory ───────────────────────────────────────────────
     Object.defineProperty(navigator, 'hardwareConcurrency', {{ get: () => {self.cpu_count}, configurable: true }});
@@ -225,32 +255,105 @@ class SystemProfile:
     Object.defineProperty(navigator, 'language', {{ get: () => '{lang}', configurable: true }});
     Object.defineProperty(navigator, 'languages', {{ get: () => ['{lang}', '{lang_short}'], configurable: true }});
 
-    // ── 6. Screen & Viewport ─────────────────────────────────────────────────
-    const sw = {self.screen_width};
-    const sh = {self.screen_height};
-    Object.defineProperty(screen, 'width', {{ get: () => sw, configurable: true }});
-    Object.defineProperty(screen, 'height', {{ get: () => sh, configurable: true }});
-    Object.defineProperty(screen, 'availWidth', {{ get: () => sw, configurable: true }});
-    Object.defineProperty(screen, 'availHeight', {{ get: () => sh - 40, configurable: true }});
+    // ── 6. Canvas Fingerprint Noise ──────────────────────────────────────────
+    // We add slight noise to toDataURL to randomize the fingerprint
+    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", {{
+        value: function(type, encoderOptions) {{
+            // Use temporary canvas to prevent tainting the original
+            try {{
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = this.width;
+                tempCanvas.height = this.height;
+                const ctx = tempCanvas.getContext("2d");
 
-    // Match window outer dimensions to screen
-    Object.defineProperty(window, 'outerWidth', {{ get: () => sw, configurable: true }});
-    Object.defineProperty(window, 'outerHeight', {{ get: () => sh - 40, configurable: true }});
+                if (ctx) {{
+                    ctx.drawImage(this, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, this.width, this.height);
+                    const data = imgData.data;
 
-    // ── 7. Restore window.chrome ─────────────────────────────────────────────
-    if (!window.chrome) {{
-        window.chrome = {{
-            runtime: {{}},
-            loadTimes: () => ({{}}),
-            csi: () => ({{}}),
-            app: {{ isInstalled: false }}
-        }};
-    }}
+                    // Modifying just one pixel is often enough to change the hash
+                    for (let i = 0; i < this.height; i++) {{
+                        for (let j = 0; j < this.width; j++) {{
+                            const index = ((i * (this.width * 4)) + (j * 4));
+                            // Add deterministic noise based on coordinate to avoid flickering
+                            if (index % 100 === 0) {{
+                                data[index] = data[index] + NOISE_R;
+                                data[index+1] = data[index+1] + NOISE_G;
+                                data[index+2] = data[index+2] + NOISE_B;
+                            }}
+                        }}
+                    }}
+                    ctx.putImageData(imgData, 0, 0);
+                    return originalToDataURL.apply(tempCanvas, arguments);
+                }}
+            }} catch(e) {{
+                // If generic error (e.g. tainted canvas), ignore and proceed with original
+            }}
+            return originalToDataURL.apply(this, arguments);
+        }}
+    }});
+
+    // Also patch getImageData to be consistent (safe to return modified buffer)
+    const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+    Object.defineProperty(CanvasRenderingContext2D.prototype, "getImageData", {{
+        value: function(sx, sy, sw, sh) {{
+             const imgData = originalGetImageData.apply(this, arguments);
+             try {{
+                 const data = imgData.data;
+                 for (let i = 0; i < data.length; i += 4) {{
+                      if (i % 100 === 0) {{
+                        data[i] = data[i] + NOISE_R;
+                        data[i+1] = data[i+1] + NOISE_G;
+                        data[i+2] = data[i+2] + NOISE_B;
+                      }}
+                 }}
+             }} catch (e) {{}}
+             return imgData;
+        }}
+    }});
+
+    // ── 7. WebGL Fingerprint Noise ───────────────────────────────────────────
+    const getParameterProxy = (ctx, original, parameter) => {{
+        // Mask Vendor/Renderer
+        if (parameter === 37445) return 'Google Inc. (NVIDIA)'; // UNMASKED_VENDOR_WEBGL
+        if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)'; // UNMASKED_RENDERER_WEBGL
+        return original.call(ctx, parameter);
+    }};
+
+    const wrapWebGL = (contextName) => {{
+        const proto = window[contextName].prototype;
+        const origGetParam = proto.getParameter;
+        Object.defineProperty(proto, "getParameter", {{
+            value: function(parameter) {{
+                return getParameterProxy(this, origGetParam, parameter);
+            }}
+        }});
+    }};
+
+    if (window.WebGLRenderingContext) wrapWebGL('WebGLRenderingContext');
+    if (window.WebGL2RenderingContext) wrapWebGL('WebGL2RenderingContext');
+
 
     // ── 8. Permissions ───────────────────────────────────────────────────────
-    const origQuery = navigator.permissions.query;
-    navigator.permissions.query = (q) => (q.name === 'notifications') ? 
-        Promise.resolve({{ state: Notification.permission, onchange: null }}) : origQuery(q);
+    if (navigator.permissions) {{
+        const origQuery = navigator.permissions.query;
+        navigator.permissions.query = (q) => (q.name === 'notifications') ?
+            Promise.resolve({{ state: Notification.permission, onchange: null }}) : origQuery(q);
+    }}
+
+    // ── 9. WebRTC IP Handling ────────────────────────────────────────────────
+    // Minimal override to ensure candidate gathering doesn't leak local IP easily
+    const origRTC = window.RTCPeerConnection;
+    if (origRTC) {{
+        window.RTCPeerConnection = function(config) {{
+            if (config && !config.iceServers) {{
+                 config.iceServers = [{{urls: 'stun:stun.l.google.com:19302'}}];
+            }}
+            return new origRTC(config);
+        }};
+        window.RTCPeerConnection.prototype = origRTC.prototype;
+    }}
 
 }})();
 """
@@ -273,4 +376,4 @@ class SystemProfile:
         if load_cookies and self.cookie_domain:
             await self.load_cookies(tab)
             
-        logger.info(f"Stealth Hardened: {self.screen_width}x{self.screen_height} | UA={self.user_agent}")
+        logger.info(f"Stealth Hardened: {self.screen_width}x{self.screen_height} | UA={self.user_agent} | Noise=({self.noise_seed_r},{self.noise_seed_g},{self.noise_seed_b})")

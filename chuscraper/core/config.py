@@ -213,11 +213,12 @@ class Config:
             for arg in self._browser_args:
                 if "disable-blink-features=AutomationControlled" in arg:
                     continue # Skip this flag as it triggers infobars and detection
+                if "enable-automation" in arg:
+                    continue
                 if arg not in args:
                     safe_args.append(arg)
             args.extend(safe_args)
-=======
-            args.extend([arg for arg in self._browser_args if arg not in args and "enable-automation" not in arg])
+
         if self.headless:
             args.append("--headless=new")
         if self.user_agent:
