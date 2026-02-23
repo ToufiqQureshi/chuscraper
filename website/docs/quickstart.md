@@ -5,7 +5,7 @@ Get up and running with Chuscraper in seconds.
 ## Installation
 
 ```sh
-pip install chuscraper==0.19.3
+pip install chuscraper --upgrade
 ```
 
 ## Your First Script
@@ -15,20 +15,25 @@ Open a browser, navigate to a page, and extract the heading:
 ```python
 import asyncio
 import chuscraper as cs
+from chuscraper.core.stealth import SystemProfile
 
 async def main():
-    # 1. Start the browser (defaults to headless=False for visibility)
-    async with await cs.start(stealth=True) as browser:
+    # 1. Start the browser with Elite Stealth and Proxy support
+    async with await cs.start(headless=False) as browser:
         
         # 2. Navigate to a URL (returns a Tab object)
         tab = await browser.get('https://example.com')
         
-        # 3. Use properties easily
+        # 3. Apply Elite Stealth Profile (Deep Version Sync 145)
+        profile = SystemProfile.from_system(cookie_domain="example.com")
+        await profile.apply(tab)
+        
+        # 4. Use properties easily
         print(f"Current URL: {tab.url}")
         print(f"Page Title: {await tab.title()}")
 
-        # 4. Find element by text or selector
-        header = await tab.find("Example Domain")
+        # 5. High-Performance Selectors
+        header = await tab.select("h1")
         print(f"Found heading: {await header.text()}")
 
 if __name__ == '__main__':

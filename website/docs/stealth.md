@@ -21,15 +21,25 @@ async def main():
 asyncio.run(main())
 ```
 
-## What stealth mode applies
+## Elite Stealth: The Chuscraper Advantage
 
-With `stealth=True`, Chuscraper applies:
+Unlike traditional stealth drivers, Chuscraper v0.19.6 implements **Full-Precision Version Synchronization**.
 
-1. **WebDriver hardening** (`navigator.webdriver` masking)
-2. **Client hints + UA coherence**
-3. **WebGL and hardware profile spoofing**
-4. **Chrome runtime + permissions noise reduction**
-5. **Device metrics and locale/timezone coherence**
+### 1. Deep Version Sync (145.0.x)
+Most scrapers only spoof the major version (e.g., 145) in headers but leak the full kernel version via `navigator.userAgentData`. Chuscraper detects your browser's exact build and syncs it across:
+- **HTTP Headers** (User-Agent)
+- **Navigator Object** (Client Hints)
+- **Web Workers** (Background context)
+
+### 2. Dual-Layer CDP Patching
+We use both `Network` and `Emulation` CDP domains to ensure the spoofing is consistent even for deep-probing detectors like CreepJS.
+
+### 3. Advanced JS Bypasses
+With `stealth=True`, Chuscraper injects 6+ premium bypasses:
+- **WebDriver Hiding**: Removes `navigator.webdriver`.
+- **Chrome Runtime Proxy**: Spoofs `window.chrome`.
+- **Hardware Realism**: Randomizes RAM, CPU cores, and Screen Resolution to match your OS profile.
+- **Canvas/WebGL Noise**: Prevents browser fingerprinting via graphics rendering.
 
 ## Recommended production preset
 

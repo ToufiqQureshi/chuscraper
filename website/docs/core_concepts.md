@@ -53,3 +53,31 @@ await btn.click()
 -   `await element.send_keys("text")`: Types with natural delays.
 -   `await element.text()`: Returns the visible text content (async).
 -   `element.attrs`: Access all HTML attributes directly.
+
+---
+
+## ⚙️ Configuration Switches (Parameters)
+
+Chuscraper gives you full control via `cs.start()`. Here are the powerful switches you can use:
+
+### 🛠️ Core Switches
+| Switch | Description | Default |
+| :--- | :--- | :--- |
+| `headless` | Run without a visible window (`True`/`False`) | `False` |
+| `stealth` | **Master Switch** for advanced anti-detection (System Fingerprints + JS Bypasses) | `True` |
+| `stealth_domain` | The domain used for cookie storage/loading in stealth mode | `""` |
+| `user_data_dir` | Path to save/load browser profile (keep logins/cookies) | `Temp` |
+| `proxy` | Proxy URL (e.g. `http://user:pass@host:port`) | `None` |
+
+### 🚀 Advanced Switches
+| Switch | Description | Default |
+| :--- | :--- | :--- |
+| `browser_executable_path` | Custom path to Chrome/Brave binary (auto-detect if omitted) | Auto |
+| `browser` | Browser selection: `"auto"`, `"chrome"`, `"brave"` | `"auto"` |
+| `browser_args` | Extra Chromium args list (e.g., `["--incognito"]`) | `[]` |
+| `sandbox` | Set `False` for Linux/Docker/root environments | `True` |
+| `lang` | Browser locale/language (e.g., `en-US`, `hi-IN`) | `en-US` |
+| `disable_webrtc` | Prevent IP leaks via WebRTC | `True` |
+| `timezone` | Force timezone (IANA format, e.g. `Asia/Kolkata`) | Auto |
+| `retry_enabled` | Enable retry helpers for unstable workflows | `False` |
+| `retry_count` | Number of times to retry failed operations | `3` |

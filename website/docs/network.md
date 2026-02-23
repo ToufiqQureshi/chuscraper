@@ -4,14 +4,19 @@ Chuscraper gives you control over the network layer, allowing you to use proxies
 
 ## Using Proxies
 
-You can set a proxy when starting the browser. Chuscraper handles the command-line arguments for you.
+Chuscraper handles proxies differently than standard automation tools. We use a **Local Auth Proxy** architecture:
+1.  You provide your upstream proxy (with auth).
+2.  Chuscraper spawns a local, tiny TCP bridge.
+3.  The browser connects to this bridge.
+4.  **Result**: No "Proxy Authentication Required" popups, and full compatibility with headless mode!
 
 ```python
 # Simple proxy
 browser = await cs.start(proxy="127.0.0.1:8080")
 
-# Authenticated proxy (handled via extension or arguments)
-browser = await cs.start(proxy="http://user:pass@proxy.com:8080")
+# Authenticated proxy (Recommended)
+# Format: http://user:pass@host:port
+browser = await cs.start(proxy="http://alice:secret123@gw.dataimpulse.com:823")
 ```
 
 ### Rotating Proxies

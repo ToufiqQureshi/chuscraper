@@ -42,6 +42,37 @@ items = await tab.select_all("ul.results li")
 el = await tab.xpath("//h1[contains(text(), 'Success')]")
 ```
 
+---
+
+## 🛡️ Adaptive Selectors (Save & Relocate)
+
+Chuscraper can "learn" your elements. If a website changes its DOM, Adaptive Selectors can find the element again based on its "fingerprint" (text, attributes, tag, path).
+
+```python
+# 'adaptive=True' saves the element's properties for future relocation
+hotels = await tab.select_all("h1.hotelName", adaptive=True)
+
+# Later, even if the class 'hotelName' changes, 
+# Chuscraper will relocate the element!
+```
+
+## 🤖 AI-Ready Extraction
+
+Convert any element or page directly into clean, structured formats for AI processing or data storage.
+
+```python
+element = await tab.select(".product-description")
+
+# 1. Convert to Markdown (using markdownify)
+md = await element.to_markdown()
+
+# 2. Convert to Normalized Text
+txt = await element.to_text()
+
+# 3. Convert to JSON
+data = await element.json()
+```
+
 ## Waiting for Content
 
 Always use `wait_for` to handle dynamic loading. It blocks execution until the element is ready.
