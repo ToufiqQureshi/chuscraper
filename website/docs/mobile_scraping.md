@@ -132,3 +132,6 @@ for _ in range(10):
 *   **Device Not Found:** Ensure USB Debugging is ON and the device is authorized (check phone screen for a popup). run `adb devices` in terminal.
 *   **Element Not Found:** The screen might not be fully loaded. Increase wait times. Also, some apps use `WebViews` or `Flutter` which might not expose standard Android XML nodes.
 *   **Text Input Issues:** `input_text` simulates keyboard input. Ensure the field is focused (clicked) before typing.
+*   **Special Characters:** ADB input has limited support for complex characters or emojis. Use `adb shell input keyboard text "..."` for better compatibility if simple text fails.
+*   **Screen State:** Ensure the device screen is ON and unlocked. Consider setting "Screen Timeout" to "Never" in developer settings.
+*   **Performance:** Dumping XML hierarchy can be slow (1-2s) on older devices. Avoid calling `dump_hierarchy()` inside tight loops; fetch it once and parse locally.

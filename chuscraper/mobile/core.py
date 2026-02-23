@@ -11,14 +11,20 @@ async def run_adb(args: List[str], timeout: float = 10.0) -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass # Process already dead
+            raise TimeoutError(f"ADB command timed out after {timeout}s: {' '.join(args)}")
 
         if process.returncode != 0:
             raise RuntimeError(f"ADB Error: {stderr.decode().strip()}")
 
         return stdout.decode().strip()
-    except asyncio.TimeoutError:
-        raise TimeoutError(f"ADB command timed out after {timeout}s: {' '.join(args)}")
     except FileNotFoundError:
         raise RuntimeError("ADB not found. Please install Android Platform Tools.")
 
