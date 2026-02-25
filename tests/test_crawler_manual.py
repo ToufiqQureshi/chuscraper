@@ -2,12 +2,11 @@ import asyncio
 import logging
 from chuscraper.spider import Crawler
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 async def main():
-    # Pass headless=True explicitly in browser_config for CI/Server environments
     crawler = Crawler(
-        start_urls=["https://example.com"],
+        start_urls=["https://revmerito.com"], # User's test target
         max_pages=3,
         max_depth=1,
         concurrency=1,
@@ -21,7 +20,6 @@ async def main():
     for res in results:
         print(f"URL: {res.get('url')}")
         print(f"Title: {res.get('title')}")
-        # print(f"Markdown Length: {len(res.get('markdown', ''))}")
         print("-" * 20)
 
 if __name__ == "__main__":

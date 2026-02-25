@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from typing import List, Dict, Optional, Set, Callable
-from urllib.parse import urlparse, urljoin
+from typing import List, Dict, Optional, Set, Callable, Any
+from urllib.parse import urlparse, urljoin, urldefrag
 from chuscraper.core.tab import Tab
 from chuscraper.core.browser import Browser
 
@@ -15,6 +15,7 @@ class Crawler:
     - Concurrency (Multiple Tabs)
     - Domain Restriction (Stays on the same site)
     - Structured Output (Markdown, Metadata)
+    - AI Extraction Hook (Placeholder)
     """
 
     def __init__(
@@ -51,6 +52,35 @@ class Crawler:
         self.results: List[Dict] = []
         self._browser: Optional[Browser] = None
 
+        # Calculate allowed domains (strip www. prefix)
+        self.allowed_domains = set()
+        for url in self.start_urls:
+            domain = urlparse(url).netloc
+            if domain.startswith("www."):
+                domain = domain[4:]
+            self.allowed_domains.add(domain)
+
+    def _is_allowed(self, url: str) -> bool:
+        """Checks if the URL belongs to the allowed domains."""
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https"):
+                return False
+
+            domain = parsed.netloc
+            if domain.startswith("www."):
+                domain = domain[4:]
+
+            return domain in self.allowed_domains
+        except Exception:
+            return False
+
+    def _normalize_url(self, url: str) -> str:
+        """Removes fragments and normalizes URL."""
+        url, _ = urldefrag(url)
+        # Ensure trailing slash consistency? Maybe. For now, rely on standard form.
+        return url
+
     async def _worker(self, worker_id: int):
         """
         A worker that picks URLs from the queue and processes them using a Tab.
@@ -58,16 +88,16 @@ class Crawler:
         while len(self.visited) < self.max_pages:
             try:
                 # Get a URL from the queue (non-blocking if empty, handled by timeout)
-                current_url, depth = await asyncio.wait_for(self.queue.get(), timeout=2.0)
+                queue_item = await asyncio.wait_for(self.queue.get(), timeout=2.0)
+                current_url, depth = queue_item
             except (asyncio.TimeoutError, asyncio.QueueEmpty):
-                # If queue is empty and no active workers, we might be done.
-                # In a real crawler, we'd need more robust termination logic.
                 break
 
             if depth > self.max_depth:
                 self.queue.task_done()
                 continue
 
+            # Check visited again in case another worker processed it
             if current_url in self.visited:
                 self.queue.task_done()
                 continue
@@ -78,11 +108,15 @@ class Crawler:
             page = None
             try:
                 # Open a new tab for this task using browser.get(new_tab=True)
-                # The browser.new_tab method does not exist, use browser.get(new_tab=True) instead
                 page = await self._browser.get(current_url, new_tab=True)
 
                 # Wait for load - simplified
-                await page.sleep(2)
+                await page.sleep(3)
+
+                # Update URL after redirect (important!)
+                final_url = self._normalize_url(page.url)
+                if final_url != current_url:
+                     self.visited.add(final_url)
 
                 # Extract Data
                 data = {}
@@ -91,9 +125,14 @@ class Crawler:
                     data = await self.extraction_hook(page)
                 else:
                     # Default Extraction
+                    try:
+                        title = await page.evaluate("document.title")
+                    except:
+                        title = "No Title"
+
                     data = {
-                        "url": page.url,
-                        "title": await page.evaluate("document.title"),
+                        "url": final_url,
+                        "title": title,
                         "markdown": await page.markdown()
                     }
 
@@ -101,15 +140,21 @@ class Crawler:
 
                 # Extract Links for Next Depth
                 if depth < self.max_depth:
-                    links = await page.get_all_urls(absolute=True)
-                    base_domain = urlparse(self.start_urls[0]).netloc # Simple domain restriction
+                    # Use get_all_urls with error handling
+                    try:
+                        links = await page.get_all_urls(absolute=True)
+                    except Exception:
+                        links = []
 
                     for link in links:
-                        # Basic filtering: Same domain, http/s only
-                        parsed_link = urlparse(link)
-                        if parsed_link.netloc == base_domain and parsed_link.scheme in ("http", "https"):
-                            if link not in self.visited:
-                                await self.queue.put((link, depth + 1))
+                        normalized_link = self._normalize_url(link)
+
+                        if self._is_allowed(normalized_link):
+                            if normalized_link not in self.visited:
+                                await self.queue.put((normalized_link, depth + 1))
+                                logger.debug(f"[Worker-{worker_id}] Added: {normalized_link}")
+                        else:
+                             logger.debug(f"[Worker-{worker_id}] Skipped external/invalid: {normalized_link}")
 
                 # Close the tab after processing
                 await page.close()
@@ -124,17 +169,19 @@ class Crawler:
             finally:
                 self.queue.task_done()
 
-    async def run(self) -> List[Dict]:
+    async def run(self, prompt: Optional[str] = None, schema: Optional[Any] = None) -> List[Dict]:
         """
         Starts the crawling process.
+
+        :param prompt: (Optional) Natural language prompt for AI extraction (Coming Soon)
+        :param schema: (Optional) Pydantic model for structured extraction (Coming Soon)
         """
         # Initialize Browser
-        # We need to import here to avoid circular dependency issues if any, though standard import is fine.
         from chuscraper.core.browser import Browser
 
         # Enqueue start URLs
         for url in self.start_urls:
-            await self.queue.put((url, 0))
+            await self.queue.put((self._normalize_url(url), 0))
 
         # Start Browser
         self._browser = await Browser.create(**self.browser_config)
