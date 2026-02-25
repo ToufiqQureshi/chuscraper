@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import json
+import csv
 from typing import List, Dict, Optional, Set, Callable, Any
 from urllib.parse import urlparse, urljoin, urldefrag
 from chuscraper.core.tab import Tab
@@ -16,6 +18,7 @@ class Crawler:
     - Domain Restriction (Stays on the same site)
     - Structured Output (Markdown, Metadata)
     - AI Extraction Hook (Placeholder)
+    - File Output (JSON, CSV, JSONL)
     """
 
     def __init__(
@@ -206,10 +209,40 @@ class Crawler:
             finally:
                 self.queue.task_done()
 
-    async def run(self, prompt: Optional[str] = None, schema: Optional[Any] = None) -> List[Dict]:
+    def _save_to_file(self, filename: str):
+        """Saves results to a file based on extension."""
+        if not self.results:
+            logger.warning("No results to save.")
+            return
+
+        try:
+            if filename.endswith(".json"):
+                with open(filename, "w", encoding="utf-8") as f:
+                    json.dump(self.results, f, indent=2, ensure_ascii=False)
+            elif filename.endswith(".jsonl"):
+                with open(filename, "w", encoding="utf-8") as f:
+                    for item in self.results:
+                        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            elif filename.endswith(".csv"):
+                keys = self.results[0].keys()
+                with open(filename, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=keys)
+                    writer.writeheader()
+                    writer.writerows(self.results)
+            else:
+                logger.warning(f"Unknown file extension for {filename}. Saving as JSON.")
+                with open(filename, "w", encoding="utf-8") as f:
+                    json.dump(self.results, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Saved {len(self.results)} results to {filename}")
+        except Exception as e:
+            logger.error(f"Failed to save results to {filename}: {e}")
+
+    async def run(self, output_file: Optional[str] = None, prompt: Optional[str] = None, schema: Optional[Any] = None) -> List[Dict]:
         """
         Starts the crawling process.
 
+        :param output_file: (Optional) Filename to save results (json, csv, jsonl).
         :param prompt: (Optional) Natural language prompt for AI extraction (Coming Soon)
         :param schema: (Optional) Pydantic model for structured extraction (Coming Soon)
         """
@@ -241,5 +274,8 @@ class Crawler:
         finally:
             if self._browser:
                 await self._browser.stop()
+
+        if output_file:
+            self._save_to_file(output_file)
 
         return self.results
