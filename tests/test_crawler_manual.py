@@ -7,13 +7,13 @@ logging.basicConfig(level=logging.INFO)
 async def main():
     crawler = Crawler(
         start_urls=["https://revmerito.com"],
-        max_pages=5, # Increased to ensure we see depth
-        max_depth=2,
+        max_pages=10,
+        max_depth=3, # Increased depth to find deeper pages
         concurrency=1,
         browser_config={"headless": True}
     )
 
-    print("Starting crawl...")
+    print("Starting crawl with Depth 3...")
     results = await crawler.run()
 
     print(f"Crawled {len(results)} pages.")

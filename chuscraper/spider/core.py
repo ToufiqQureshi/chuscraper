@@ -87,37 +87,24 @@ class Crawler:
         """
         while True:
             # Check exit condition FIRST
-            # If we reached the page limit, we stop processing new pages.
-            # However, we must continue to 'drain' the queue to satisfy queue.join() in run()
-            # otherwise the main loop will hang forever waiting for task_done().
             if len(self.visited) >= self.max_pages:
                 try:
-                    # Non-blocking get to drain the queue
                     self.queue.get_nowait()
                     self.queue.task_done()
                 except asyncio.QueueEmpty:
-                    # If queue is empty and we are over limit, we can just wait/break
-                    # But other workers might still be adding?
-                    # If we break here, queue.join() waits for them.
-                    # We'll rely on the timeout below to exit naturally if empty.
                     pass
-
-                # Small sleep to avoid busy loop if queue fills up again
                 await asyncio.sleep(0.1)
-
-                # We can try to break if we are sure no one is adding...
-                # But safer to just continue draining loop until cancelled or queue empty check in run() logic?
-                # Actually, if all workers enter this state, the queue will eventually empty and join() returns.
-                # Then workers are cancelled.
                 continue
 
             try:
                 # Get a URL from the queue (non-blocking if empty, handled by timeout)
-                # We use a short timeout so we can periodically check the visited limit
                 queue_item = await asyncio.wait_for(self.queue.get(), timeout=2.0)
                 current_url, depth = queue_item
             except (asyncio.TimeoutError, asyncio.QueueEmpty):
                 # If queue is empty for a while, we assume we are done
+                # But we should log it for debugging
+                if len(self.visited) > 0 and len(self.visited) < self.max_pages:
+                     logger.debug(f"[Worker-{worker_id}] Queue empty. Visited: {len(self.visited)}/{self.max_pages}")
                 break
 
             if depth > self.max_depth:
@@ -187,15 +174,24 @@ class Crawler:
                         except Exception as e:
                             logger.error(f"[Worker-{worker_id}] JS link extraction failed: {e}")
 
+                    # Log total links found for debugging
+                    logger.debug(f"[Worker-{worker_id}] Found {len(links)} raw links on {current_url}")
+
+                    count_added = 0
                     for link in links:
                         normalized_link = self._normalize_url(link)
 
                         if self._is_allowed(normalized_link):
                             if normalized_link not in self.visited:
                                 await self.queue.put((normalized_link, depth + 1))
-                                logger.debug(f"[Worker-{worker_id}] Added: {normalized_link}")
+                                count_added += 1
+                                # logger.debug(f"[Worker-{worker_id}] Added: {normalized_link}")
                         else:
-                             logger.debug(f"[Worker-{worker_id}] Skipped external/invalid: {normalized_link}")
+                             # logger.debug(f"[Worker-{worker_id}] Skipped external/invalid: {normalized_link}")
+                             pass
+
+                    if count_added == 0:
+                        logger.debug(f"[Worker-{worker_id}] No new unique links added from {current_url}")
 
                 # Close the tab after processing
                 await page.close()
