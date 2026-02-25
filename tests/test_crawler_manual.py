@@ -2,7 +2,7 @@ import asyncio
 import logging
 from chuscraper.spider import Crawler
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 async def main():
     crawler = Crawler(
