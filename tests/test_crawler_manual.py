@@ -6,9 +6,9 @@ logging.basicConfig(level=logging.INFO)
 
 async def main():
     crawler = Crawler(
-        start_urls=["https://revmerito.com"], # User's test target
-        max_pages=3,
-        max_depth=1,
+        start_urls=["https://revmerito.com"],
+        max_pages=5, # Increased to ensure we see depth
+        max_depth=2,
         concurrency=1,
         browser_config={"headless": True}
     )

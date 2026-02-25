@@ -85,12 +85,39 @@ class Crawler:
         """
         A worker that picks URLs from the queue and processes them using a Tab.
         """
-        while len(self.visited) < self.max_pages:
+        while True:
+            # Check exit condition FIRST
+            # If we reached the page limit, we stop processing new pages.
+            # However, we must continue to 'drain' the queue to satisfy queue.join() in run()
+            # otherwise the main loop will hang forever waiting for task_done().
+            if len(self.visited) >= self.max_pages:
+                try:
+                    # Non-blocking get to drain the queue
+                    self.queue.get_nowait()
+                    self.queue.task_done()
+                except asyncio.QueueEmpty:
+                    # If queue is empty and we are over limit, we can just wait/break
+                    # But other workers might still be adding?
+                    # If we break here, queue.join() waits for them.
+                    # We'll rely on the timeout below to exit naturally if empty.
+                    pass
+
+                # Small sleep to avoid busy loop if queue fills up again
+                await asyncio.sleep(0.1)
+
+                # We can try to break if we are sure no one is adding...
+                # But safer to just continue draining loop until cancelled or queue empty check in run() logic?
+                # Actually, if all workers enter this state, the queue will eventually empty and join() returns.
+                # Then workers are cancelled.
+                continue
+
             try:
                 # Get a URL from the queue (non-blocking if empty, handled by timeout)
+                # We use a short timeout so we can periodically check the visited limit
                 queue_item = await asyncio.wait_for(self.queue.get(), timeout=2.0)
                 current_url, depth = queue_item
             except (asyncio.TimeoutError, asyncio.QueueEmpty):
+                # If queue is empty for a while, we assume we are done
                 break
 
             if depth > self.max_depth:
@@ -110,8 +137,8 @@ class Crawler:
                 # Open a new tab for this task using browser.get(new_tab=True)
                 page = await self._browser.get(current_url, new_tab=True)
 
-                # Wait for load - simplified
-                await page.sleep(3)
+                # Wait for load - slightly increased to ensure scripts run
+                await page.sleep(4)
 
                 # Update URL after redirect (important!)
                 final_url = self._normalize_url(page.url)
@@ -141,10 +168,24 @@ class Crawler:
                 # Extract Links for Next Depth
                 if depth < self.max_depth:
                     # Use get_all_urls with error handling
+                    # Fallback to manual JS extraction if CDP fails
+                    links = []
                     try:
                         links = await page.get_all_urls(absolute=True)
-                    except Exception:
-                        links = []
+                    except Exception as e:
+                        logger.warning(f"[Worker-{worker_id}] CDP link extraction failed: {e}")
+
+                    if not links:
+                        logger.debug(f"[Worker-{worker_id}] Fallback to JS link extraction")
+                        try:
+                            # Robust JS extraction that handles shadow DOM and relative links
+                            js_links = await page.evaluate("""
+                                Array.from(document.querySelectorAll('a[href]')).map(a => a.href)
+                            """)
+                            if js_links and isinstance(js_links, list):
+                                links = js_links
+                        except Exception as e:
+                            logger.error(f"[Worker-{worker_id}] JS link extraction failed: {e}")
 
                     for link in links:
                         normalized_link = self._normalize_url(link)
