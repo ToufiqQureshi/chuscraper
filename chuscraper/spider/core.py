@@ -20,7 +20,7 @@ class Crawler:
     - Domain Restriction (Stays on the same site)
     - Structured Output (Markdown, Metadata, HTML, Text)
     - AI Extraction Hook (Placeholder)
-    - File Output (JSON, CSV, JSONL)
+    - File Output (JSON, CSV, JSONL, Markdown)
     """
 
     def __init__(
@@ -252,12 +252,18 @@ class Crawler:
                     for item in self.results:
                         f.write(json.dumps(item, ensure_ascii=False) + "\n")
             elif filename.endswith(".csv"):
-                # Ensure all keys are present for CSV header
                 all_keys = set().union(*(d.keys() for d in self.results))
                 with open(filename, "w", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=list(all_keys))
                     writer.writeheader()
                     writer.writerows(self.results)
+            elif filename.endswith(".md"):
+                with open(filename, "w", encoding="utf-8") as f:
+                    for item in self.results:
+                        f.write(f"# {item.get('title', 'No Title')}\n")
+                        f.write(f"Source: {item.get('url', 'Unknown URL')}\n\n")
+                        f.write(item.get("markdown", ""))
+                        f.write("\n\n---\n\n")
             else:
                 logger.warning(f"Unknown file extension for {filename}. Saving as JSON.")
                 with open(filename, "w", encoding="utf-8") as f:
@@ -271,7 +277,7 @@ class Crawler:
         """
         Starts the crawling process.
 
-        :param output_file: (Optional) Filename to save results (json, csv, jsonl).
+        :param output_file: (Optional) Filename to save results (json, csv, jsonl, md).
         :param prompt: (Optional) Natural language prompt for AI extraction (Coming Soon)
         :param schema: (Optional) Pydantic model for structured extraction (Coming Soon)
         """
