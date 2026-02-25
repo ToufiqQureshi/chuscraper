@@ -2,12 +2,14 @@ import asyncio
 import logging
 import json
 import csv
-from typing import List, Dict, Optional, Set, Callable, Any
+from typing import List, Dict, Optional, Set, Callable, Any, Literal
 from urllib.parse import urlparse, urljoin, urldefrag
 from chuscraper.core.tab import Tab
 from chuscraper.core.browser import Browser
 
 logger = logging.getLogger(__name__)
+
+FormatType = Literal["markdown", "html", "text"]
 
 class Crawler:
     """
@@ -16,7 +18,7 @@ class Crawler:
     - BFS (Breadth-First Search) Traversal
     - Concurrency (Multiple Tabs)
     - Domain Restriction (Stays on the same site)
-    - Structured Output (Markdown, Metadata)
+    - Structured Output (Markdown, Metadata, HTML, Text)
     - AI Extraction Hook (Placeholder)
     - File Output (JSON, CSV, JSONL)
     """
@@ -27,6 +29,7 @@ class Crawler:
         max_pages: int = 10,
         max_depth: int = 2,
         concurrency: int = 2,
+        formats: List[FormatType] = ["markdown"],
         browser_config: Optional[Dict] = None,
         extraction_hook: Optional[Callable[[Tab], Dict]] = None
     ):
@@ -35,9 +38,10 @@ class Crawler:
         :param max_pages: Maximum number of unique pages to crawl.
         :param max_depth: Maximum depth to traverse from the start URL.
         :param concurrency: Number of concurrent tabs to use.
+        :param formats: List of formats to extract: "markdown", "html", "text". Default: ["markdown"]
         :param browser_config: Configuration dictionary for Browser.create().
         :param extraction_hook: A custom async function that takes a Tab and returns a dict of data.
-                                If None, defaults to extracting title, url, and markdown.
+                                If None, defaults to extracting based on `formats`.
         """
         if isinstance(start_urls, str):
             self.start_urls = [start_urls]
@@ -47,6 +51,7 @@ class Crawler:
         self.max_pages = max_pages
         self.max_depth = max_depth
         self.concurrency = concurrency
+        self.formats = formats
         self.browser_config = browser_config or {}
         self.extraction_hook = extraction_hook
 
@@ -83,6 +88,38 @@ class Crawler:
         url, _ = urldefrag(url)
         # Ensure trailing slash consistency? Maybe. For now, rely on standard form.
         return url
+
+    async def _extract_content(self, page: Tab) -> Dict[str, Any]:
+        """Extracts content based on configured formats."""
+        try:
+            title = await page.evaluate("document.title")
+        except:
+            title = "No Title"
+
+        data = {
+            "url": self._normalize_url(page.url),
+            "title": title,
+        }
+
+        # Parallel extraction if multiple formats needed?
+        # For now, sequential is fine as they access DOM differently.
+        if "markdown" in self.formats:
+            data["markdown"] = await page.markdown()
+
+        if "html" in self.formats:
+            data["html"] = await page.get_content()
+
+        if "text" in self.formats:
+            # Simple text extraction using body innerText or similar
+            # Ideally we use page.to_text() if available, or simple evaluate
+            # Tab has to_text() method in newer versions
+            try:
+                data["text"] = await page.to_text()
+            except AttributeError:
+                 # Fallback
+                 data["text"] = await page.evaluate("document.body.innerText")
+
+        return data
 
     async def _worker(self, worker_id: int):
         """
@@ -141,17 +178,8 @@ class Crawler:
                     # User provided hook
                     data = await self.extraction_hook(page)
                 else:
-                    # Default Extraction
-                    try:
-                        title = await page.evaluate("document.title")
-                    except:
-                        title = "No Title"
-
-                    data = {
-                        "url": final_url,
-                        "title": title,
-                        "markdown": await page.markdown()
-                    }
+                    # Default Extraction based on formats
+                    data = await self._extract_content(page)
 
                 self.results.append(data)
 
@@ -224,9 +252,10 @@ class Crawler:
                     for item in self.results:
                         f.write(json.dumps(item, ensure_ascii=False) + "\n")
             elif filename.endswith(".csv"):
-                keys = self.results[0].keys()
+                # Ensure all keys are present for CSV header
+                all_keys = set().union(*(d.keys() for d in self.results))
                 with open(filename, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=keys)
+                    writer = csv.DictWriter(f, fieldnames=list(all_keys))
                     writer.writeheader()
                     writer.writerows(self.results)
             else:

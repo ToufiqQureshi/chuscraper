@@ -1,20 +1,22 @@
 import asyncio
 import logging
 import os
+import json
 from chuscraper.spider import Crawler
 
 logging.basicConfig(level=logging.INFO)
 
 async def main():
-    output_file = "crawl_results.json"
+    output_file = "crawl_results_formats.json"
     if os.path.exists(output_file):
         os.remove(output_file)
 
     crawler = Crawler(
         start_urls=["https://revmerito.com"],
-        max_pages=3,
-        max_depth=2,
+        max_pages=2,
+        max_depth=1,
         concurrency=1,
+        formats=["markdown", "html"], # Request both formats
         browser_config={"headless": True}
     )
 
@@ -24,7 +26,11 @@ async def main():
     if os.path.exists(output_file):
         print(f"Success! File {output_file} created.")
         with open(output_file, "r") as f:
-            print(f"File content preview: {f.read()[:200]}...")
+            data = json.load(f)
+            if data and "markdown" in data[0] and "html" in data[0]:
+                print("Verification Passed: Both markdown and html present.")
+            else:
+                print("Verification Failed: Missing formats.")
     else:
         print("Error: File not created.")
 
