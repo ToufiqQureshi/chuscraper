@@ -6,27 +6,25 @@ from chuscraper.spider import Crawler
 logging.basicConfig(level=logging.INFO)
 
 async def main():
-    output_file = "crawl_results.md"
+    output_file = "test_basic_crawl.json"
     if os.path.exists(output_file):
         os.remove(output_file)
 
+    print(f"--- TEST 1: Basic Crawl (JSON) ---")
     crawler = Crawler(
-        start_urls=["https://neurofiq.in"],
-        max_pages=2,
+        start_urls=["https://revmerito.com"],
+        max_pages=3,
         max_depth=1,
         concurrency=1,
         browser_config={"headless": True}
     )
 
-    print(f"Starting crawl... Saving to {output_file}")
     await crawler.run(output_file=output_file)
 
     if os.path.exists(output_file):
-        print(f"Success! File {output_file} created.")
-        with open(output_file, "r", encoding="utf-8") as f:
-            print(f"File content preview:\n{f.read()[:300]}...")
+        print(f"✅ Success! {output_file} created.")
     else:
-        print("Error: File not created.")
+        print("❌ Failure: File not created.")
 
 if __name__ == "__main__":
     asyncio.run(main())
