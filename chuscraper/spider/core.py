@@ -7,6 +7,11 @@ from urllib.parse import urlparse, urljoin, urldefrag
 from chuscraper.core.tab import Tab
 from chuscraper.core.browser import Browser
 
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
 logger = logging.getLogger(__name__)
 
 FormatType = Literal["markdown", "html", "text"]
@@ -21,11 +26,13 @@ class Crawler:
     - Structured Output (Markdown, Metadata, HTML, Text)
     - Streaming Callback (Memory Efficient)
     - File Output (JSON, CSV, JSONL, Markdown)
+    - Sitemap Support
     """
 
     def __init__(
         self,
-        start_urls: List[str] | str,
+        start_urls: List[str] | str | None = None,
+        sitemap_url: str | None = None,
         max_pages: int = 10,
         max_depth: int = 2,
         concurrency: int = 2,
@@ -36,6 +43,7 @@ class Crawler:
     ):
         """
         :param start_urls: Single URL or list of URLs to start crawling from.
+        :param sitemap_url: URL of the sitemap.xml to crawl. Overrides start_urls discovery.
         :param max_pages: Maximum number of unique pages to crawl.
         :param max_depth: Maximum depth to traverse from the start URL.
         :param concurrency: Number of concurrent tabs to use.
@@ -45,10 +53,17 @@ class Crawler:
         :param on_page_crawled: A custom async callback function called for every crawled page.
                                 Receives the data dict. Useful for streaming/saving to DB.
         """
-        if isinstance(start_urls, str):
-            self.start_urls = [start_urls]
+        if sitemap_url:
+            self.start_urls = []
+            self.sitemap_url = sitemap_url
+        elif start_urls:
+            if isinstance(start_urls, str):
+                self.start_urls = [start_urls]
+            else:
+                self.start_urls = start_urls
+            self.sitemap_url = None
         else:
-            self.start_urls = start_urls
+            raise ValueError("Either start_urls or sitemap_url must be provided.")
 
         self.max_pages = max_pages
         self.max_depth = max_depth
@@ -65,7 +80,10 @@ class Crawler:
 
         # Calculate allowed domains (strip www. prefix)
         self.allowed_domains = set()
-        for url in self.start_urls:
+
+        # If sitemap is used, we determine domain from sitemap URL initially
+        initial_urls = self.start_urls if self.start_urls else [self.sitemap_url]
+        for url in initial_urls:
             domain = urlparse(url).netloc
             if domain.startswith("www."):
                 domain = domain[4:]
@@ -90,6 +108,54 @@ class Crawler:
         """Removes fragments and normalizes URL."""
         url, _ = urldefrag(url)
         return url
+
+    async def _fetch_sitemap(self, url: str) -> List[str]:
+        """Fetches and parses a sitemap (and nested sitemaps)."""
+        logger.info(f"Fetching sitemap: {url}")
+        urls = []
+        page = None
+        try:
+            # FIX: Use browser.get(new_tab=True) instead of non-existent new_tab method
+            page = await self._browser.get(url, new_tab=True)
+            # Wait for content
+            await page.sleep(2)
+            content = await page.get_content()
+            await page.close()
+            page = None
+
+            if not BeautifulSoup:
+                logger.error("BeautifulSoup not installed. Cannot parse sitemap.")
+                return []
+
+            # Parse XML
+            soup = BeautifulSoup(content, "xml")
+
+            # Check for sitemap index
+            sitemaps = soup.find_all("sitemap")
+            if sitemaps:
+                for sm in sitemaps:
+                    loc = sm.find("loc")
+                    if loc:
+                        nested_urls = await self._fetch_sitemap(loc.text.strip())
+                        urls.extend(nested_urls)
+
+            # Check for urlset
+            url_tags = soup.find_all("url")
+            for url_tag in url_tags:
+                loc = url_tag.find("loc")
+                if loc:
+                    clean_url = loc.text.strip()
+                    urls.append(clean_url)
+
+        except Exception as e:
+            logger.error(f"Failed to fetch/parse sitemap {url}: {e}")
+            if page:
+                try:
+                    await page.close()
+                except:
+                    pass
+
+        return urls
 
     async def _extract_content(self, page: Tab) -> Dict[str, Any]:
         """Extracts content based on configured formats."""
@@ -136,7 +202,8 @@ class Crawler:
                 current_url, depth = queue_item
             except (asyncio.TimeoutError, asyncio.QueueEmpty):
                 if len(self.visited) > 0 and len(self.visited) < self.max_pages:
-                     logger.debug(f"[Worker-{worker_id}] Queue empty. Visited: {len(self.visited)}/{self.max_pages}")
+                     # Debug log reduced to avoid spam
+                     pass
                 break
 
             if depth > self.max_depth:
@@ -153,8 +220,6 @@ class Crawler:
             page = None
             try:
                 page = await self._browser.get(current_url, new_tab=True)
-
-                # Wait for load
                 await page.sleep(4)
 
                 final_url = self._normalize_url(page.url)
@@ -170,22 +235,20 @@ class Crawler:
 
                 # Store or Stream
                 if self.on_page_crawled:
-                    # Streaming Mode: Send to callback, don't store in memory
                     try:
                         if asyncio.iscoroutinefunction(self.on_page_crawled):
                             await self.on_page_crawled(data)
                         else:
-                            # If user provided a sync function, wrap it?
-                            # For safety, we assume async or run in thread, but let's just warn or fail for now.
-                            # Ideally, users should provide async functions.
                             pass
                     except Exception as e:
                         logger.error(f"Error in on_page_crawled callback: {e}")
                 else:
-                    # Default Mode: Store in memory
                     self.results.append(data)
 
-                # Extract Links
+                # Extract Links (Only if NOT using sitemap mode, OR if depth allows exploration from sitemap URLs)
+                # Actually, Firecrawl usually treats sitemap URLs as depth 0.
+                # But here we treat them as whatever depth they came in (0).
+                # If max_depth > 0, we should explore links from sitemap pages too.
                 if depth < self.max_depth:
                     links = []
                     try:
@@ -261,22 +324,28 @@ class Crawler:
     async def run(self, output_file: Optional[str] = None, prompt: Optional[str] = None, schema: Optional[Any] = None) -> List[Dict]:
         """
         Starts the crawling process.
-
-        :param output_file: (Optional) Filename to save results (json, csv, jsonl, md).
-        :param prompt: (Optional) Natural language prompt for AI extraction (Coming Soon)
-        :param schema: (Optional) Pydantic model for structured extraction (Coming Soon)
         """
         # Initialize Browser
         from chuscraper.core.browser import Browser
 
-        # Enqueue start URLs
-        for url in self.start_urls:
-            await self.queue.put((self._normalize_url(url), 0))
-
-        # Start Browser
         self._browser = await Browser.create(**self.browser_config)
 
         try:
+            # Handle Sitemap Loading
+            if self.sitemap_url:
+                sitemap_urls = await self._fetch_sitemap(self.sitemap_url)
+                logger.info(f"Found {len(sitemap_urls)} URLs from sitemap.")
+
+                # Filter allowed domains just in case sitemap points externally
+                for url in sitemap_urls:
+                    if self._is_allowed(url):
+                        await self.queue.put((self._normalize_url(url), 0))
+
+            # Handle Start URLs (if any, though logic excludes both)
+            elif self.start_urls:
+                for url in self.start_urls:
+                    await self.queue.put((self._normalize_url(url), 0))
+
             # Create workers
             workers = [asyncio.create_task(self._worker(i)) for i in range(self.concurrency)]
 
