@@ -8,7 +8,7 @@ This guide focuses on stable, long-running scraping/automation workloads.
 
 ## Production checklist
 
-1. Pin version (example: `chuscraper==0.19.3`)
+1. Pin version in your `requirements.txt`
 2. Use `async with` lifecycle for guaranteed cleanup
 3. Enable `production_ready=True` for safer connection/retry behavior
 4. Enable `stealth=True` for protected sites

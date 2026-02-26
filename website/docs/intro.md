@@ -1,25 +1,31 @@
-# Welcome to Chuscraper
+# Welcome to Chuscraper 🕷️
 
-**Chuscraper** is a high-performance, stealth-focused browser automation library for Python. Built on top of the Chrome DevTools Protocol (CDP), it manages to be faster and more undetectable than traditional Selenium or Puppeteer solutions.
+<p align="center">
+  <img src="https://i.ibb.co/HLyG7BBK/Chat-GPT-Image-Feb-16-2026-11-13-14-AM.png" alt="Chuscraper Logo" width="180" />
+</p>
+
+**Chuscraper** is a high-performance, stealth-focused browser automation library for Python. Powered by **CDP (Chrome DevTools Protocol)** and **ADB (Android Debug Bridge)**, it allows you to scrape data from websites and native mobile apps with industry-leading anti-detection capabilities.
+
+> **You Only Scrape Once** — data extraction made smarter, faster, and more resilient.
 
 ## Why Chuscraper?
 
-- **🚀 Blazing Fast**: Communicates directly with the browser via CDP, skipping the WebDriver overhead.
-- **🥷 Stealth by Design**: Built-in anti-detection mechanisms to pass bot checks (Cloudflare, Akamai, etc.) out of the box.
-- **⚡ Async First**: Built on `asyncio` for high concurrency and modern performance.
-- **🧩 Modular & Easy**: New Mixin-based architecture makes it powerful yet simple to use.
+- **🚀 Blazing Fast**: Communicates directly with the browser via CDP, skipping the heavy WebDriver overhead.
+- **🥷 Stealth by Design**: Built-in mechanisms to bypass top-tier bot verification systems like Cloudflare, Akamai, and Datadome.
+- **📱 Mobile Native**: First-class support for automating and extracting data from Android apps.
+- **⚡ Async First**: Built on `asyncio` for high-concurrency workflows and modern performance.
+- **🧩 Modular Architecture**: Mixin-based design that is powerful for experts yet simple for beginners.
 
-## Key Features
+## Key Capabilities
 
 | Feature | Description |
 | :--- | :--- |
-| **Direct CDP** | Full control over the browser protocol. |
-| **Tab Management** | Easy multi-tab handling with `browser.tabs` and `browser.get()`. |
-| **Smart Selectors** | CSS, XPath, and **Text** selectors with "best match" fuzzy logic. |
-| **Undetected** | Automatic patching of `navigator`, `webdriver`, `WebGL`, and more. |
-| **Network Control** | Intercept requests, block URLs, and manage cookies effortlessly. |
-| **Universal Crawler** | High-concurrency BFS crawler with sitemap support. |
-| **Mobile Scraping** | Automate and extract data from native Android apps via ADB. |
+| **Direct CDP** | Full control over the browser protocol without middlemen. |
+| **Elite Stealth** | Automatic patching of `navigator`, `webdriver`, `WebGL`, and `Canvas`. |
+| **Mobile Automation** | Control real devices or emulators for native app scraping. |
+| **Universal Crawler** | High-concurrency BFS crawler with `sitemap.xml` support. |
+| **Smart Locators** | CSS, XPath, and Fuzzy Text selectors that "learn" from your page. |
+| **AI-Ready** | One-click conversion of content to clean **Markdown** or **Normalized Text**. |
 
 ## Quick Example
 
@@ -28,21 +34,23 @@ import asyncio
 import chuscraper as cs
 
 async def main():
-    # Start browser with stealth enabled (undiscovered mode)
-    async with await cs.start(stealth=True) as browser:
+    # Start browser with elite stealth and human-like behavior
+    async with await cs.start(stealth=True, headless=False) as browser:
         
-        # Navigate simply
+        # Navigate to a protected site
         tab = await browser.get('https://example.com')
         
-        # Extract data in one line
-        title = await tab.title()
+        # Use smart selectors to find data
         heading = await tab.find("Example Domain")
         
-        print(f"Site: {title}")
+        # Extract data in AI-ready formats
         print(f"Heading Text: {await heading.text()}")
+        print(f"Markdown Content:\n{await tab.to_markdown()}")
 
 if __name__ == '__main__':
     asyncio.run(main())
 ```
 
-Check out the [Installation](installation.md) guide to get set up, or dive into the [Quickstart](quickstart.md).
+---
+
+Ready to start? Head over to the [Installation](installation.md) guide or dive into the [Quickstart](quickstart.md).
