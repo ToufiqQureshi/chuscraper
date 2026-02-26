@@ -116,12 +116,19 @@ def start_process(
     params: list[str],
     is_posix: bool,
 ) -> subprocess.Popen[bytes]:
+
+    kwargs = {}
+    if sys.platform == "win32":
+        # Hides the console window on Windows
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     proc = subprocess.Popen(
         [str(exe)] + params,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         close_fds=is_posix,
+        **kwargs
     )
 
     if sys.platform == "win32":
