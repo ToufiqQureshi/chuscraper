@@ -18,21 +18,17 @@ import chuscraper as cs
 from chuscraper.core.stealth import SystemProfile
 
 async def main():
-    # 1. Start the browser with Elite Stealth and Proxy support
-    async with await cs.start(headless=False) as browser:
+    # 1. Start the browser with Elite Stealth enabled
+    async with await cs.start(headless=False, stealth=True) as browser:
         
         # 2. Navigate to a URL (returns a Tab object)
         tab = await browser.get('https://example.com')
         
-        # 3. Apply Elite Stealth Profile (Deep Version Sync 145)
-        profile = SystemProfile.from_system(cookie_domain="example.com")
-        await profile.apply(tab)
-        
-        # 4. Use properties easily
+        # 3. Use properties easily
         print(f"Current URL: {tab.url}")
         print(f"Page Title: {await tab.title()}")
 
-        # 5. High-Performance Selectors
+        # 4. High-Performance Selectors
         header = await tab.select("h1")
         print(f"Found heading: {await header.text()}")
 
