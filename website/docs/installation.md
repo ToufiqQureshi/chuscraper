@@ -11,7 +11,7 @@ Getting Chuscraper up and running is straightforward.
 ## Install via pip
 
 ```bash
-pip install chuscraper==0.19.3
+pip install chuscraper
 ```
 
 Or with your package manager:
