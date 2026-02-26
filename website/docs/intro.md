@@ -18,6 +18,7 @@
 | **Smart Selectors** | CSS, XPath, and **Text** selectors with "best match" fuzzy logic. |
 | **Undetected** | Automatic patching of `navigator`, `webdriver`, `WebGL`, and more. |
 | **Network Control** | Intercept requests, block URLs, and manage cookies effortlessly. |
+| **Universal Crawler** | Turn whole sites into data with BFS, Sitemap, and AI Extraction. |
 
 ## Quick Example
 
