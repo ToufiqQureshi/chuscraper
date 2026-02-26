@@ -23,9 +23,9 @@ asyncio.run(main())
 
 ## Elite Stealth: The Chuscraper Advantage
 
-Unlike traditional stealth drivers, Chuscraper v0.19.6 implements **Full-Precision Version Synchronization**.
+Unlike traditional stealth drivers, Chuscraper implements **Full-Precision Version Synchronization**.
 
-### 1. Deep Version Sync (145.0.x)
+### 1. Deep Version Sync
 Most scrapers only spoof the major version (e.g., 145) in headers but leak the full kernel version via `navigator.userAgentData`. Chuscraper detects your browser's exact build and syncs it across:
 - **HTTP Headers** (User-Agent)
 - **Navigator Object** (Client Hints)

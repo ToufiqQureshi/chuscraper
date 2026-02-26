@@ -18,6 +18,8 @@
 | **Smart Selectors** | CSS, XPath, and **Text** selectors with "best match" fuzzy logic. |
 | **Undetected** | Automatic patching of `navigator`, `webdriver`, `WebGL`, and more. |
 | **Network Control** | Intercept requests, block URLs, and manage cookies effortlessly. |
+| **Universal Crawler** | High-concurrency BFS crawler with sitemap support. |
+| **Mobile Scraping** | Automate and extract data from native Android apps via ADB. |
 
 ## Quick Example
 
