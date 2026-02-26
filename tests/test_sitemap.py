@@ -21,19 +21,19 @@ async def main():
         max_pages=5, # Limit to avoid crawling whole site
         max_depth=1, # Depth from sitemap URLs
         concurrency=1,
-        browser_config={"headless": True}
+        browser_config={"headless": False}
     )
 
     await crawler.run(output_file=output_file)
 
     if os.path.exists(output_file):
-        print(f"✅ Success! {output_file} created.")
-        with open(output_file) as f:
+        print(f"Success! {output_file} created.")
+        with open(output_file, encoding="utf-8") as f:
             import json
             data = json.load(f)
             print(f"Crawled {len(data)} pages from sitemap source.")
     else:
-        print("❌ Failure: File not created (Maybe sitemap doesn't exist or failed to parse).")
+        print("Failure: File not created (Maybe sitemap doesn't exist or failed to parse).")
 
 if __name__ == "__main__":
     asyncio.run(main())
