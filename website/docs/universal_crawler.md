@@ -99,6 +99,22 @@ crawler = Crawler(
 )
 ```
 
+### 5. AI Extraction (LLM)
+You can attach an **AI Extractor** to turn raw text into structured JSON automatically.
+
+```python
+from chuscraper.ai import OpenAIExtractor
+
+crawler = Crawler(
+    start_urls=["https://site.com"],
+    extractor=OpenAIExtractor(model="gpt-4o")
+)
+
+await crawler.run(prompt="Extract all pricing information")
+```
+
+👉 **[Read the Full AI Guide](ai_features.md)**
+
 ## Configuration Options
 
 | Parameter | Type | Default | Description |

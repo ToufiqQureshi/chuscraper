@@ -41,6 +41,7 @@ Turn entire websites into LLM-ready data with a single command.
 - **Streaming:** Stream extracted data directly to your database without memory limits.
 - **Multi-Format:** Extract Markdown, HTML, and Text simultaneously.
 - **Robust:** Handles redirects, SPA link discovery, and concurrency automatically.
+- **AI Extraction:** Integrate OpenAI/LLMs to extract structured JSON data from any page using natural language prompts.
 
 ### 📱 Native Mobile App Scraping
 Chuscraper now supports scraping native Android apps using ADB:

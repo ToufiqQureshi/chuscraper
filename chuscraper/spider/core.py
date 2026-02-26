@@ -2,10 +2,15 @@ import asyncio
 import logging
 import json
 import csv
-from typing import List, Dict, Optional, Set, Callable, Any, Literal, Awaitable
+from typing import List, Dict, Optional, Set, Callable, Any, Literal, Awaitable, Union
 from urllib.parse import urlparse, urljoin, urldefrag
 from chuscraper.core.tab import Tab
 from chuscraper.core.browser import Browser
+
+try:
+    from chuscraper.ai.base import BaseExtractor
+except ImportError:
+    BaseExtractor = None
 
 try:
     from bs4 import BeautifulSoup
@@ -27,6 +32,7 @@ class Crawler:
     - Streaming Callback (Memory Efficient)
     - File Output (JSON, CSV, JSONL, Markdown)
     - Sitemap Support
+    - AI Extraction (LLM)
     """
 
     def __init__(
@@ -39,7 +45,8 @@ class Crawler:
         formats: List[FormatType] = ["markdown"],
         browser_config: Optional[Dict] = None,
         extraction_hook: Optional[Callable[[Tab], Dict]] = None,
-        on_page_crawled: Optional[Callable[[Dict], Awaitable[None]]] = None
+        on_page_crawled: Optional[Callable[[Dict], Awaitable[None]]] = None,
+        extractor: Optional[Any] = None # Expects BaseExtractor
     ):
         """
         :param start_urls: Single URL or list of URLs to start crawling from.
@@ -52,6 +59,7 @@ class Crawler:
         :param extraction_hook: A custom async function that takes a Tab and returns a dict of data.
         :param on_page_crawled: A custom async callback function called for every crawled page.
                                 Receives the data dict. Useful for streaming/saving to DB.
+        :param extractor: An instance of `chuscraper.ai.BaseExtractor` (e.g. OpenAIExtractor) for structured extraction.
         """
         if sitemap_url:
             self.start_urls = []
@@ -72,6 +80,7 @@ class Crawler:
         self.browser_config = browser_config or {}
         self.extraction_hook = extraction_hook
         self.on_page_crawled = on_page_crawled
+        self.extractor = extractor
 
         self.visited: Set[str] = set()
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -157,8 +166,8 @@ class Crawler:
 
         return urls
 
-    async def _extract_content(self, page: Tab) -> Dict[str, Any]:
-        """Extracts content based on configured formats."""
+    async def _extract_content(self, page: Tab, prompt: Optional[str] = None, schema: Optional[Any] = None) -> Dict[str, Any]:
+        """Extracts content based on configured formats OR AI."""
         try:
             title = await page.evaluate("document.title")
         except:
@@ -169,8 +178,12 @@ class Crawler:
             "title": title,
         }
 
-        if "markdown" in self.formats:
-            data["markdown"] = await page.markdown()
+        # 1. Standard Formats Extraction
+        content_markdown = ""
+        if "markdown" in self.formats or (self.extractor and prompt): # AI needs markdown
+            content_markdown = await page.markdown()
+            if "markdown" in self.formats:
+                data["markdown"] = content_markdown
 
         if "html" in self.formats:
             data["html"] = await page.get_content()
@@ -181,9 +194,19 @@ class Crawler:
             except AttributeError:
                  data["text"] = await page.evaluate("document.body.innerText")
 
+        # 2. AI Extraction (If enabled and prompt provided)
+        if self.extractor and prompt:
+            logger.info(f"Extracting AI data for {data['url']}...")
+            try:
+                ai_data = await self.extractor.extract(content_markdown, prompt, schema)
+                data["extracted_data"] = ai_data
+            except Exception as e:
+                logger.error(f"AI Extraction failed for {data['url']}: {e}")
+                data["extracted_data"] = {"error": str(e)}
+
         return data
 
-    async def _worker(self, worker_id: int):
+    async def _worker(self, worker_id: int, prompt: Optional[str] = None, schema: Optional[Any] = None):
         """
         A worker that picks URLs from the queue and processes them using a Tab.
         """
@@ -231,7 +254,8 @@ class Crawler:
                 if self.extraction_hook:
                     data = await self.extraction_hook(page)
                 else:
-                    data = await self._extract_content(page)
+                    # Pass prompt/schema to extraction logic
+                    data = await self._extract_content(page, prompt, schema)
 
                 # Store or Stream
                 if self.on_page_crawled:
@@ -346,8 +370,8 @@ class Crawler:
                 for url in self.start_urls:
                     await self.queue.put((self._normalize_url(url), 0))
 
-            # Create workers
-            workers = [asyncio.create_task(self._worker(i)) for i in range(self.concurrency)]
+            # Create workers (pass prompt/schema)
+            workers = [asyncio.create_task(self._worker(i, prompt, schema)) for i in range(self.concurrency)]
 
             await self.queue.join()
 
