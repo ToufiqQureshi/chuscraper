@@ -16,6 +16,7 @@ __all__ = [
     "Config",
     "BrowserConfig",
     "start",
+    "scrape",
     "util",
     "Element",
     "ContraDict",
@@ -33,7 +34,7 @@ __all__ = [
 ]
 
 # Lazy imports to avoid circular dependencies
-from chuscraper.core.util import loop, start
+from chuscraper.core.util import loop, start, scrape
 from chuscraper.core.browser import Browser
 from chuscraper.core.tab import Tab
 from chuscraper.core.element import Element

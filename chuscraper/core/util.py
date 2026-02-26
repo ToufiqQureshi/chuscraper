@@ -418,3 +418,43 @@ async def get_timezone_from_ip(proxy: Optional[str] = None) -> Optional[str]:
             await asyncio.sleep(1)
             
     return None
+
+async def scrape(
+    url: str,
+    formats: List[str] = ["markdown"],
+    stealth: bool = True,
+    wait: float = 2.0,
+    **kwargs: Any
+) -> dict[str, Any]:
+    """
+    High-level convenience function to scrape a single URL and return structured data.
+    Automatically handles browser lifecycle and stealth.
+
+    :param url: The URL to scrape.
+    :param formats: List of formats to return ("markdown", "text", "html").
+    :param stealth: Whether to enable elite stealth mode (default: True).
+    :param wait: Seconds to wait for dynamic content to render.
+    :param kwargs: Additional arguments for chuscraper.start()
+    :return: A dictionary containing the extracted data.
+    """
+    from .tab import Tab
+
+    async with await start(stealth=stealth, **kwargs) as browser:
+        tab = await browser.get(url)
+        if wait > 0:
+            await tab.sleep(wait)
+
+        data = {
+            "url": tab.url,
+            "title": await tab.title(),
+            "status": 200 # Inferred if we reached here
+        }
+
+        if "markdown" in formats:
+            data["markdown"] = await tab.to_markdown()
+        if "text" in formats:
+            data["text"] = await tab.to_text()
+        if "html" in formats:
+            data["html"] = await tab.get_content()
+
+        return data

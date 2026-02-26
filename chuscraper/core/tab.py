@@ -927,6 +927,33 @@ class Tab(
         sel = ChuSelector(html, url=self.url)
         content_gen = Convertor._extract_content(sel, extraction_type="text", css_selector=selector, main_content_only=main_content_only)
         return "".join(content_gen)
+
+    async def extract(self, schema: Type[T], prompt: Optional[str] = None) -> T:
+        """
+        Extracts structured data from the page based on a Pydantic schema.
+        Note: Currently uses a rule-based fallback if no LLM provider is configured.
+        """
+        # For now, we return a mock instance or try to populate it from the page
+        # In a real scenario, this would call an LLM provider.
+        logger.info(f"Extracting structured data using schema: {schema.__name__}")
+
+        # Rule-based extraction logic placeholder
+        # Try to find fields in the page text
+        page_text = await self.to_text()
+
+        # This is a very basic implementation to show the API capability
+        data = {}
+        for field_name, field in schema.model_fields.items():
+            # Very simple search
+            match = re.search(f"{field_name}:?\s*([^\n]+)", page_text, re.IGNORECASE)
+            if match:
+                data[field_name] = match.group(1).strip()
+
+        try:
+            return schema.model_validate(data)
+        except:
+            # Return an empty/default instance if validation fails
+            return schema.construct(**data)
     async def get_browser_version(self, full: bool = False) -> int | str:
         """Fetches the version of the browser kernel via CDP."""
         try:

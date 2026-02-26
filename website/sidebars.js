@@ -28,6 +28,7 @@ const sidebars = {
         'installation',
         'quickstart',
         'first_script',
+        'chuscraper_vs_firecrawl',
       ],
     },
     {

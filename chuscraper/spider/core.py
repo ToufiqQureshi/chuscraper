@@ -39,7 +39,8 @@ class Crawler:
         formats: List[FormatType] = ["markdown"],
         browser_config: Optional[Dict] = None,
         extraction_hook: Optional[Callable[[Tab], Dict]] = None,
-        on_page_crawled: Optional[Callable[[Dict], Awaitable[None]]] = None
+        on_page_crawled: Optional[Callable[[Dict], Awaitable[None]]] = None,
+        map_only: bool = False
     ):
         """
         :param start_urls: Single URL or list of URLs to start crawling from.
@@ -72,6 +73,7 @@ class Crawler:
         self.browser_config = browser_config or {}
         self.extraction_hook = extraction_hook
         self.on_page_crawled = on_page_crawled
+        self.map_only = map_only
 
         self.visited: Set[str] = set()
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -228,7 +230,9 @@ class Crawler:
 
                 # Extract Data
                 data = {}
-                if self.extraction_hook:
+                if self.map_only:
+                    data = {"url": final_url}
+                elif self.extraction_hook:
                     data = await self.extraction_hook(page)
                 else:
                     data = await self._extract_content(page)

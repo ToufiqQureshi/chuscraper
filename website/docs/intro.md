@@ -15,6 +15,7 @@
 - **📱 Mobile Native**: First-class support for automating and extracting data from Android apps.
 - **⚡ Async First**: Built on `asyncio` for high-concurrency workflows and modern performance.
 - **🧩 Modular Architecture**: Mixin-based design that is powerful for experts yet simple for beginners.
+- **🔌 API Simplicity**: Use the high-level `scrape()` function for one-line data extraction, making it as easy as any managed API.
 
 ## Key Capabilities
 
