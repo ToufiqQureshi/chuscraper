@@ -44,9 +44,9 @@ const sidebars = {
       type: 'category',
       label: 'Advanced Features',
       items: [
-        'crawler',
         'network',
         'stealth',
+        'universal_crawler',
         'mobile_scraping',
         'ai_features',
         'advanced_cdp',

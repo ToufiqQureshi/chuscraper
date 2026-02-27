@@ -35,7 +35,15 @@ It converts standard Chromium instances into undetectable agents that can bypass
 
 ## 🌟 Key Features
 
-### 📱 Native Mobile App Scraping (New!)
+### 🕷️ Universal Crawler (New!)
+Turn entire websites into LLM-ready data with a single command.
+- **Sitemap & BFS:** Supports both sitemap-based (fast) and BFS (deep) crawling strategies.
+- **Streaming:** Stream extracted data directly to your database without memory limits.
+- **Multi-Format:** Extract Markdown, HTML, and Text simultaneously.
+- **Robust:** Handles redirects, SPA link discovery, and concurrency automatically.
+- **AI Extraction:** Integrate OpenAI/LLMs to extract structured JSON data from any page using natural language prompts.
+
+### 📱 Native Mobile App Scraping
 Chuscraper now supports scraping native Android apps using ADB:
 - **UI Automation:** Tap, swipe, and type on any connected Android device (Real or Emulator).
 - **XML Dumping:** Extract the full UI hierarchy as XML to find elements by text, resource-id, or content-desc.

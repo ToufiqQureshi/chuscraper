@@ -1,71 +1,91 @@
-# AI-Ready Extraction
 
-Chuscraper is designed to be the perfect companion for LLM-based data pipelines. Instead of dealing with messy HTML, Chuscraper provides "AI-Ready" formats like clean Markdown and normalized text, which significantly reduce token usage and improve LLM accuracy.
+---
+sidebar_position: 7
+---
 
-## Converting Pages to Markdown
+# AI Extraction (LLM Integration)
 
-Markdown is the preferred format for most LLMs (like GPT-4, Gemini, or Claude). Chuscraper uses a high-fidelity conversion engine to turn complex DOM trees into readable Markdown.
+Chuscraper transforms from a standard scraper to an intelligent data extraction engine using the `chuscraper.ai` module. By integrating with Large Language Models (LLMs) like OpenAI, you can extract structured JSON data from any website just by describing what you want.
 
-### Extracting the Entire Page
+## Why Use AI Extraction?
+
+- **Zero Selectors:** Stop writing brittle CSS/XPath selectors that break when the site design changes.
+- **Universal Logic:** Use the same prompt ("Extract pricing") for Amazon, Walmart, and eBay.
+- **Structured Output:** Get clean JSON directly, ready for your database.
+
+## Quick Start: OpenAIExtractor
+
+Requires the `openai` package (`pip install openai`).
 
 ```python
 import asyncio
-import chuscraper as cs
+import os
+from chuscraper.spider import Crawler
+from chuscraper.ai import OpenAIExtractor
 
 async def main():
-    async with await cs.start() as browser:
-        tab = await browser.get("https://news.ycombinator.com")
+    # 1. Initialize the Extractor
+    # Ensure OPENAI_API_KEY environment variable is set, or pass api_key="..."
+    ai = OpenAIExtractor(model="gpt-4o")
 
-        # Get full page as Markdown
-        md_content = await tab.to_markdown()
-        print(md_content)
+    # 2. Setup Crawler with the AI Extractor
+    crawler = Crawler(
+        start_urls=["https://neurofiq.in"],
+        max_pages=1,
+        max_depth=0,
+        extractor=ai # <--- Attach AI here
+    )
+
+    # 3. Run with a Natural Language Prompt
+    results = await crawler.run(
+        prompt="Extract the company mission, founder name, and a list of key services offered."
+    )
+
+    # 4. View Results
+    for res in results:
+        print(f"URL: {res['url']}")
+        if "extracted_data" in res:
+            print("AI Data:", res["extracted_data"])
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-### Extracting Specific Elements
+### Example Output
 
-You can also convert specific parts of a page, which is even more efficient for LLMs.
+```json
+{
+  "mission": "To empower businesses with intelligent AI partners that enhance human capabilities...",
+  "founder": "Toufiq Qureshi",
+  "services": [
+    "Business AI Analysis",
+    "Answer Engine Optimization (AEO)",
+    "AI Consulting & Strategy",
+    "Web Scraping & Data Collection"
+  ]
+}
+```
+
+## How It Works
+
+1.  **Crawl:** The `Crawler` visits the page and converts HTML to clean **Markdown**.
+2.  **Prompt:** It combines your prompt with the Markdown content.
+3.  **Inference:** It sends this to the LLM (e.g., OpenAI GPT-4o) with a request for JSON output.
+4.  **Result:** The structured JSON is returned and saved in the `extracted_data` key of the result.
+
+## Creating Custom Extractors
+
+You can use any LLM (Anthropic, Gemini, Ollama) by creating a custom class that inherits from `BaseExtractor`.
 
 ```python
-# Select the main content div and convert only that
-article = await tab.to_markdown(selector=".article-body")
+from chuscraper.ai import BaseExtractor
+from typing import Dict, Optional
 
-# Or use an Element object directly
-item = await tab.select(".product-card")
-product_md = await item.to_markdown()
+class MyOllamaExtractor(BaseExtractor):
+    async def extract(self, content: str, prompt: str, schema: Optional[Dict] = None):
+        # Call your local Ollama API here
+        return {"data": "custom extraction logic"}
 ```
 
-## Normalized Text Extraction
+Then pass it to the crawler: `Crawler(..., extractor=MyOllamaExtractor())`.
 
-If you don't need Markdown formatting, `to_text()` provides a "clean" version of the page content, stripping away scripts, styles, and extra whitespace while maintaining the logical structure.
-
-```python
-clean_text = await tab.to_text()
-# Returns just the human-readable text
-```
-
-## Structured Data (Adaptive Selectors)
-
-While not "AI" in the sense of using a neural network, Chuscraper's **Adaptive Selectors** use a fingerprinting algorithm to ensure your extraction logic survives website redesigns—making your AI pipeline much more resilient.
-
-```python
-# 'adaptive=True' allows the locator to survive DOM changes
-price_element = await tab.select(".price-tag", adaptive=True)
-price = await price_element.text()
-```
-
-## Future: Native LLM Integration
-
-The roadmap for Chuscraper includes a `schema` and `prompt` parameter for the Universal Crawler, allowing you to pass extraction instructions directly to an LLM provider:
-
-```python
-# Coming Soon
-results = await crawler.run(
-    prompt="Extract all product names and their prices",
-    schema=ProductSchema
-)
-```
-
----
-
-> [!TIP]
-> **Token Saving Tip:** Always prefer `to_markdown(selector=...)` over a full page crawl. This can reduce your token consumption by up to 90%!

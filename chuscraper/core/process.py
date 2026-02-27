@@ -123,6 +123,7 @@ def start_process(
         "close_fds": is_posix,
     }
     if sys.platform == "win32":
+        # Hides the console window on Windows
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
     proc = subprocess.Popen(

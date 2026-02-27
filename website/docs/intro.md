@@ -23,9 +23,10 @@
 | **Direct CDP** | Full control over the browser protocol without middlemen. |
 | **Elite Stealth** | Automatic patching of `navigator`, `webdriver`, `WebGL`, and `Canvas`. |
 | **Mobile Automation** | Control real devices or emulators for native app scraping. |
-| **Universal Crawler** | High-concurrency BFS crawler with `sitemap.xml` support. |
-| **Smart Locators** | CSS, XPath, and Fuzzy Text selectors that "learn" from your page. |
-| **AI-Ready** | One-click conversion of content to clean **Markdown** or **Normalized Text**. |
+| **Universal Crawler** | Turn whole sites into data with BFS, Sitemap, and AI Extraction. |
+| **Smart Locators** | CSS, XPath, and **Text** selectors with "best match" fuzzy logic. |
+| **Network Control** | Intercept requests, block URLs, and manage cookies effortlessly. |
+| **Tab Management** | Easy multi-tab handling with `browser.tabs` and `browser.get()`. |
 
 ## Quick Example
 
