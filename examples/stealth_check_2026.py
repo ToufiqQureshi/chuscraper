@@ -1,12 +1,12 @@
 import asyncio
 import os
-import chuscraper as zd
+import chuscraper as cs
 
 async def stealth_check_2026():
     print("🕵️‍♂️ Running Chuscraper Next-Gen Stealth Check...")
     
     # Start with stealth enabled
-    async with await zd.start(headless=False, stealth=True) as browser:
+    async with await cs.start(headless=False, stealth=True) as browser:
         page = browser.main_tab
         
         # 1. Check WebGPU Presence (Spoofed)
