@@ -77,6 +77,9 @@ Chuscraper has several advanced functions that are often missed:
 - **`print_to_pdf(filename)`**: Export the current page as a professional PDF.
 - **`get_all_urls()`**: Extract every link, image, and asset URL from the page in one call.
 - **`scroll_down(amount=25)`**: Smoothly scroll down by a percentage of the page height.
+- **`human_click(selector)` / `human_type(selector, text)`**: High-level aliases for ultra-realistic human behavior.
+- **`submit(selector)`**: One-click form submission for forms or individual buttons.
+- **`activate()` / `bring_to_front()`**: Bring a background tab to the front for interaction.
 
 ### 🔄 Flexible Outputs
 Supports JSON, CSV, Markdown, Excel, Pydantic, and more.
@@ -94,33 +97,38 @@ pip install chuscraper
 
 ---
 
-### Example: Advanced Mode (Adaptive Stealth + Selectors)
+### Example: Advanced Mode (Elite Stealth + Human Interaction)
 
 ```python
 import asyncio
 import chuscraper as zd
-from chuscraper.core.stealth import SystemProfile
 
 async def main():
-    # Use standard Chrome via Browser.create
-    async with await zd.Browser.create(proxy="http://user:pass@host:port") as browser:
-        tab = await browser.get("https://www.makemytrip.com/hotels")
+    # 1. Launch with all-in-one start() helper
+    async with await zd.start(
+        headless=False,
+        stealth=True,
+        lang="en-US",
+        retry_enabled=True
+    ) as browser:
+        page = browser.main_tab
+        await page.goto("https://github.com/login")
 
-        # 1. Apply Industry-Leading Stealth
-        profile = SystemProfile.from_system(cookie_domain="makemytrip.com")
-        await profile.apply(tab)
+        # 2. Use Ultra-Realistic Human Interactions
+        # Automatically retries if element is loading/stale
+        await page.human_type("#login_field", "jules_bot")
+        await page.human_type("#password", "SecurePass123!")
 
-        # 2. Use Adaptive Selectors (Resilient to DOM changes)
-        # 'adaptive=True' saves the element's properties for future relocation
-        hotels = await tab.select_all("h1.hotelName", adaptive=True)
+        # 3. One-Click Form Submission
+        await page.submit("form")
+
+        # 4. Extract with Adaptive Selectors
+        # 'adaptive=True' saves element metadata for resilient relocation
+        results = await page.select_all(".repository-item", adaptive=True)
         
-        for hotel in hotels:
-            # 3. Use AI-Ready Extraction
-            print(await hotel.to_text())
-            print(await hotel.to_markdown())
-
-            # 4. Hidden Gem: Get text in one go
-            # hotel_desc = await tab.select_text(".description")
+        for item in results:
+            # 5. Get clean Markdown for LLMs instantly
+            print(await item.to_markdown())
 
 if __name__ == "__main__":
     asyncio.run(main())

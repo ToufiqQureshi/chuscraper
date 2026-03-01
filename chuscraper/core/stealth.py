@@ -46,6 +46,7 @@ class SystemProfile:
     cookie_dir: pathlib.Path = field(default_factory=lambda: COOKIE_DIR)
     browser_version: int = 0
     full_browser_version: str = ""
+    stealth_options: dict = field(default_factory=dict)
     _fingerprint: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
@@ -95,6 +96,9 @@ class SystemProfile:
     def _build_stealth_script(self, detected_version: int = 145, full_version: str = "145.0.0.0") -> str:
         """Loads and compiles advanced JS bypass scripts for stealth."""
         scripts = []
+
+        opts = self.stealth_options
+
         # Manual Client Hints spoofing to ensure perfect sync
         hints_script = f"""
         (function() {{
@@ -130,6 +134,10 @@ class SystemProfile:
         scripts.append(hints_script)
 
         for filename in BYPASS_FILES:
+            # Check options if specific bypass should be disabled
+            if filename == "webdriver_fully.js" and opts.get("patch_webdriver") is False: continue
+            if filename == "screen_props.js" and opts.get("patch_canvas") is False: continue # linked logic
+
             try:
                 path = js_bypass_path(filename)
                 if pathlib.Path(path).exists():

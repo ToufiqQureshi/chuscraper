@@ -170,10 +170,19 @@ class DomMixin(TabMixin):
             # If STILL not found, and it's a simple selector, try JS fallback
             if not node_id and not _node:
                  logger.debug(f"Selector {selector} not found via CDP, trying JS fallback")
-                 backend_id = await self.tab.evaluate(f"(() => {{ const el = document.querySelector('{selector}'); return el ? 0 : null; }})()")
-                 # Wait, evaluate can't return elements easily. But we can use resolve_node.
-                 # Let's try a different approach: request_node on a JS object
-                 pass
+                 try:
+                     # 1. Evaluate to find element and return as remote object
+                     res, err = await self.send(cdp.runtime.evaluate(
+                         f"document.querySelector('{selector}')",
+                         user_gesture=True
+                     ))
+                     if res and res.object_id:
+                         # 2. Convert remote object to node id
+                         node_id = await self.send(cdp.dom.request_node(object_id=res.object_id))
+                         # 3. Refresh tree and describe node to be safe
+                         doc = await self.send(cdp.dom.get_document(-1, True))
+                 except Exception as e:
+                     logger.debug(f"JS fallback failed for {selector}: {e}")
 
         except ProtocolException as e:
             if _node is not None:

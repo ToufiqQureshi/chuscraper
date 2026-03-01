@@ -50,6 +50,31 @@ class ActionsMixin(TabMixin):
         await self._retry_action(lambda el: el.fill(text), selector, timeout=timeout)
         return self.tab
 
+    async def human_click(self, selector: str, timeout: Optional[float] = None):
+        """Alias for click(mode='human')."""
+        return await self.click(selector, mode="human", timeout=timeout)
+
+    async def human_type(self, selector: str, text: str, delay: float = 0.1, timeout: Optional[float] = None):
+        """Alias for type() with a slightly longer default human delay."""
+        return await self.type(selector, text, delay=delay, timeout=timeout)
+
+    async def human_fill(self, selector: str, text: str, timeout: Optional[float] = None):
+        """Finds element, clicks it humanly, and fills it."""
+        el = await self.tab.select(selector, timeout=timeout)
+        await el.click(mode="human")
+        await el.fill(text)
+        return self.tab
+
+    async def submit(self, selector: str = "form", timeout: Optional[float] = None):
+        """Finds a form or submit button and triggers submission."""
+        el = await self.tab.select(selector, timeout=timeout)
+        if el.node_name == "FORM":
+            await el.apply("(form) => form.submit()")
+        else:
+            # Assume it's a button, use human click
+            await el.click(mode="human")
+        return self.tab
+
     async def hover(self, selector: str, timeout: Optional[float] = None):
         """Finds and moves mouse to an element."""
         el = await self.tab.select(selector, timeout=timeout)

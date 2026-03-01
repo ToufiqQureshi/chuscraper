@@ -122,7 +122,9 @@ async def start(
     # ── Stealth mode: auto-apply system fingerprint to the main tab ──────────
     if stealth:
         from .stealth import SystemProfile
-        profile = SystemProfile.from_system(cookie_domain=stealth_domain)
+        # Use stealth_options if provided in kwargs
+        s_opts = kwargs.get("stealth_options", {})
+        profile = SystemProfile.from_system(cookie_domain=stealth_domain, stealth_options=s_opts)
         tab = browser.main_tab
         await profile.apply(tab, load_cookies=bool(stealth_domain))
         # Attach profile to browser for later use (e.g., save_cookies)
