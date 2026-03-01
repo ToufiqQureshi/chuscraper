@@ -169,6 +169,8 @@ class Config:
 
         if self.headless:
             args.append("--headless=new")
+        if self.lang:
+            args.append(f"--lang={self.lang}")
         if self.user_agent:
             # Overwrite default UA if set
             args = [a for a in args if not a.startswith("--user-agent=")]

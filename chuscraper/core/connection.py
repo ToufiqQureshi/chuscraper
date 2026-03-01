@@ -76,6 +76,7 @@ class Connection:
         self.handlers: Dict[Any, List[Callable]] = collections.defaultdict(list)
         self.recv_task: Optional[asyncio.Task] = None
         self._connected = asyncio.Event()
+        self._connecting = False
         self.__dict__.update(**kwargs)
 
     @property
@@ -103,17 +104,38 @@ class Connection:
             return not getattr(self.websocket, "open", False)
 
     async def connect(self):
+        if self._connecting:
+            await self._connected.wait()
+            return
         if self.websocket and not self.closed:
             return
+
+        self._connecting = True
+        self._connected.clear()
+
+        if self.websocket:
+            ws = self.websocket
+            self.websocket = None
+            try:
+                 # Forcefully close to free the file descriptor
+                 await asyncio.wait_for(ws.close(), timeout=1.0)
+            except: pass
         try:
             self.websocket = await websockets.asyncio.client.connect(
-                self.websocket_url, max_size=2**28
+                self.websocket_url,
+                max_size=2**28,
+                close_timeout=1.0
             )
             self._connected.set()
+            if self.recv_task and not self.recv_task.done():
+                self.recv_task.cancel()
             self.recv_task = asyncio.create_task(self._recv_loop())
         except Exception as e:
             logger.error(f"Failed to connect to {self.websocket_url}: {e}")
+            self._connected.set() # Release waiters even on failure
             raise
+        finally:
+            self._connecting = False
 
     async def _recv_loop(self):
         try:

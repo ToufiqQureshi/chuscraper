@@ -1,31 +1,53 @@
 from __future__ import annotations
+import asyncio
 from .base import TabMixin
 from typing import TYPE_CHECKING, Literal, Optional, Union
 import typing
 import secrets
+import logging
 from ... import cdp
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..tab import Tab
     from ..element import Element
 
 class ActionsMixin(TabMixin):
+    async def _retry_action(self, func, selector, *args, timeout=None, **kwargs):
+        """Internal helper to implement retry_enabled switch."""
+        config = self.tab.browser.config if self.tab.browser else None
+        retry_enabled = getattr(config, "retry_enabled", False)
+        retry_count = getattr(config, "retry_count", 3) if retry_enabled else 1
+        retry_timeout = getattr(config, "retry_timeout", 10.0)
+
+        last_exc = None
+        for i in range(retry_count):
+            try:
+                el = await self.tab.select(selector, timeout=timeout)
+                return await func(el, *args, **kwargs)
+            except Exception as e:
+                last_exc = e
+                if not retry_enabled:
+                    break
+                logger.debug(f"Retrying action on {selector} ({i+1}/{retry_count}) after error: {e}")
+                await asyncio.sleep(retry_timeout / retry_count)
+
+        raise last_exc
+
     async def click(self, selector: str, mode: Literal["human", "fast", "cdp"] = "human", timeout: Optional[float] = None):
         """Finds and clicks an element."""
-        el = await self.tab.select(selector, timeout=timeout)
-        await el.click(mode=mode)
+        await self._retry_action(lambda el: el.click(mode=mode), selector, timeout=timeout)
         return self.tab
 
     async def type(self, selector: str, text: str, delay: float = 0.05, timeout: Optional[float] = None):
         """Finds and types into an element with optional human-like delay."""
-        el = await self.tab.select(selector, timeout=timeout)
-        await el.type(text, delay=delay)
+        await self._retry_action(lambda el: el.type(text, delay=delay), selector, timeout=timeout)
         return self.tab
 
     async def fill(self, selector: str, text: str, timeout: Optional[float] = None):
         """Finds, clears, and types into an element."""
-        el = await self.tab.select(selector, timeout=timeout)
-        await el.fill(text)
+        await self._retry_action(lambda el: el.fill(text), selector, timeout=timeout)
         return self.tab
 
     async def hover(self, selector: str, timeout: Optional[float] = None):

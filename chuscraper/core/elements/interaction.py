@@ -68,40 +68,47 @@ class ElementInteractionMixin(ElementMixin):
         return self._remote_object
 
     async def update(self, _node: cdp.dom.Node | None = None) -> Element:
-        # This implementation requires access to self._node, self._tree, self._remote_object
-        # It updates them logic implies it should be in the main Element class OR 
-        # we define the logic here and Element uses it. 
-        # Given it relies on internal state _node/_tree extensively, maybe keep in Element?
-        # But wait, query methods call update().
-        # Let's keep logic here but assume setters/properties exist or direct access 
-        # (in python we can access protected members)
-        
-        # NOTE: For mixin refactoring, update() is central. I will implement it here using self._node etc
-        # assuming the main class provides them.
-        
+        """
+        Updates the element's node information and remote object handle.
+        Crucial for preventing 'Could not find node' errors after DOM changes.
+        """
         if _node:
             doc = _node
         else:
+            # We must enable DOM before fetching document to ensure node tracking
+            await self.tab.send(cdp.dom.enable())
             doc = await self.tab.send(cdp.dom.get_document(-1, True))
         
-        # We need self._node access. 
         current_node = getattr(self, '_node')
         updated_node = util.filter_recurse(
             doc, lambda n: n.backend_node_id == current_node.backend_node_id
         )
+
         if updated_node:
-            logger.debug("node seems changed, and has now been updated.")
+            logger.debug(f"Node updated for element {self.node_name}")
             setattr(self, '_node', updated_node)
-        
+        else:
+            # If still not found in tree, the node might be detached or in a different branch.
+            # We attempt to describe the node directly via backend id as a last resort.
+            try:
+                describe_res = await self.tab.send(cdp.dom.describe_node(backend_node_id=current_node.backend_node_id))
+                if describe_res:
+                     setattr(self, '_node', describe_res)
+            except Exception:
+                logger.debug(f"Failed to resolve node {current_node.backend_node_id} even after refresh")
+
         setattr(self, '_tree', doc)
 
-        new_remote_obj = await self.tab.send(
-            cdp.dom.resolve_node(backend_node_id=getattr(self, '_node').backend_node_id)
-        )
-        setattr(self, '_remote_object', new_remote_obj)
+        # Ensure remote object is fresh
+        try:
+            new_remote_obj = await self.tab.send(
+                cdp.dom.resolve_node(backend_node_id=getattr(self, '_node').backend_node_id)
+            )
+            setattr(self, '_remote_object', new_remote_obj)
+        except Exception as e:
+            logger.debug(f"Failed to resolve remote object for {self.node_name}: {e}")
         
         self.attrs.clear()
-        # call self._make_attrs()
         if hasattr(self, '_make_attrs'):
             self._make_attrs() # type: ignore
             

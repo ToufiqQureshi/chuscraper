@@ -128,6 +128,16 @@ async def start(
         # Attach profile to browser for later use (e.g., save_cookies)
         browser._stealth_profile = profile
 
+    # ── Auto-apply Timezone if set ──────────────────────────────────────────
+    if timezone or (stealth and not timezone):
+        try:
+            tz = timezone or await get_timezone_from_ip(proxy=proxy)
+            if tz:
+                for tab in browser.tabs:
+                    await tab.send(cdp.emulation.set_timezone_override(timezone_id=tz))
+        except Exception as e:
+            logger.debug(f"Failed to apply timezone: {e}")
+
     return browser
 
 

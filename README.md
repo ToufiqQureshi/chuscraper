@@ -67,6 +67,17 @@ Chuscraper now includes a high-performance parsing engine:
 - **AI-Ready Extraction:** One-click conversion of pages or elements to clean **Markdown** or normalized **Text**.
 - **CSS & XPath Support:** Unified API for high-speed selection.
 
+### 🛠️ Hidden Gems (Undocumented Functions)
+Chuscraper has several advanced functions that are often missed:
+- **`select_text(selector)`**: Quickly get the inner text of an element in one line.
+- **`save_snapshot(filename)`**: Save a full MHTML snapshot of the current page.
+- **`to_markdown()` / `to_text()`**: Convert any live `Element` directly to Markdown or plain text.
+- **`wait_for_ready_state(state)`**: Wait specifically for `loading`, `interactive`, or `complete` document states.
+- **`mouse_drag(destination)`**: Perform native drag-and-drop operations with human-like movement.
+- **`print_to_pdf(filename)`**: Export the current page as a professional PDF.
+- **`get_all_urls()`**: Extract every link, image, and asset URL from the page in one call.
+- **`scroll_down(amount=25)`**: Smoothly scroll down by a percentage of the page height.
+
 ### 🔄 Flexible Outputs
 Supports JSON, CSV, Markdown, Excel, Pydantic, and more.
 
@@ -107,6 +118,9 @@ async def main():
             # 3. Use AI-Ready Extraction
             print(await hotel.to_text())
             print(await hotel.to_markdown())
+
+            # 4. Hidden Gem: Get text in one go
+            # hotel_desc = await tab.select_text(".description")
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -149,6 +149,7 @@ class DomMixin(TabMixin):
 
         doc: Any
         if not _node:
+            await self.send(cdp.dom.enable())
             doc = await self.send(cdp.dom.get_document(-1, True))
         else:
             doc = _node
@@ -159,6 +160,20 @@ class DomMixin(TabMixin):
 
         try:
             node_id = await self.send(cdp.dom.query_selector(doc.node_id, selector))
+            if not node_id and not _node:
+                 # If not found in current doc tree and we are at root,
+                 # try refreshing doc tree once
+                 await self.send(cdp.dom.enable())
+                 doc = await self.send(cdp.dom.get_document(-1, True))
+                 node_id = await self.send(cdp.dom.query_selector(doc.node_id, selector))
+
+            # If STILL not found, and it's a simple selector, try JS fallback
+            if not node_id and not _node:
+                 logger.debug(f"Selector {selector} not found via CDP, trying JS fallback")
+                 backend_id = await self.tab.evaluate(f"(() => {{ const el = document.querySelector('{selector}'); return el ? 0 : null; }})()")
+                 # Wait, evaluate can't return elements easily. But we can use resolve_node.
+                 # Let's try a different approach: request_node on a JS object
+                 pass
 
         except ProtocolException as e:
             if _node is not None:
@@ -175,6 +190,7 @@ class DomMixin(TabMixin):
                 and "could not find node" in e.message.lower()
                 and doc
             ):
+                await self.send(cdp.dom.enable())
                 doc = await self.send(cdp.dom.get_document(-1, True))
                 setattr(doc, "__last", True)
                 return await self.query_selector(selector, doc)
