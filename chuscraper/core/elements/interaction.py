@@ -369,32 +369,42 @@ class ElementInteractionMixin(ElementMixin):
         return_by_value: bool = True,
         *,
         await_promise: bool = False,
+        retry: bool = True,
     ) -> typing.Any:
         if not self.remote_object:
              setattr(self, '_remote_object', await self.tab.send(
                 cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
             ))
 
-        result: typing.Tuple[
-            cdp.runtime.RemoteObject, typing.Any
-        ] = await self.tab.send(
-            cdp.runtime.call_function_on(
-                js_function,
-                object_id=self.remote_object.object_id,
-                arguments=[
-                    cdp.runtime.CallArgument(object_id=self.remote_object.object_id)
-                ],
-                return_by_value=True,
-                user_gesture=True,
-                await_promise=await_promise,
+        try:
+            result: typing.Tuple[
+                cdp.runtime.RemoteObject, typing.Any
+            ] = await self.tab.send(
+                cdp.runtime.call_function_on(
+                    js_function,
+                    object_id=self.remote_object.object_id,
+                    arguments=[
+                        cdp.runtime.CallArgument(object_id=self.remote_object.object_id)
+                    ],
+                    return_by_value=True,
+                    user_gesture=True,
+                    await_promise=await_promise,
+                )
             )
-        )
-        if result and result[0]:
-            if return_by_value:
-                return result[0].value
-            return result[0]
-        elif result[1]:
-            return result[1]
+            if result and result[0]:
+                if return_by_value:
+                    return result[0].value
+                return result[0]
+            elif result[1]:
+                return result[1]
+        except Exception as e:
+            from ..connection import ProtocolException
+            if retry and isinstance(e, ProtocolException) and e.code == -32000:
+                logger.debug(f"Retrying apply() on {self.node_name} after stale object_id error")
+                setattr(self, '_remote_object', None)  # Clear cache to force refresh
+                await self.update()
+                return await self.apply(js_function, return_by_value, await_promise=await_promise, retry=False)
+            raise e
 
     async def get_position(self, abs: bool = False) -> Position | None:
         if not self.remote_object or not self.object_id:

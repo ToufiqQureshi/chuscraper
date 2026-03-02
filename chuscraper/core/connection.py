@@ -80,9 +80,9 @@ class Connection:
         self.__dict__.update(**kwargs)
 
     @property
-    def target_id(self) -> Optional[str]:
+    def target_id(self) -> Optional[cdp.target.TargetID]:
         if self.target and hasattr(self.target, 'target_id'):
-            return str(self.target.target_id)
+            return self.target.target_id
         return None
 
     @property
