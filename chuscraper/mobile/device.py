@@ -1,10 +1,11 @@
 import asyncio
 import os
 import time
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any
 from chuscraper.mobile.core import run_adb
 from chuscraper.mobile.element import MobileElement
 from bs4 import BeautifulSoup
+import lxml.etree as ET
 
 class MobileDevice:
     """Controls a connected Android device via ADB."""
@@ -38,13 +39,8 @@ class MobileDevice:
         cmd = ["-s", self.serial] + list(args)
         return await run_adb(cmd, timeout=timeout)
 
-    async def dump_hierarchy(self) -> BeautifulSoup:
-        """Dumps the current UI hierarchy and returns a BeautifulSoup object."""
-        # Dump to device temp file
-        # Note: 'uiautomator dump' creates /sdcard/window_dump.xml by default on older androids
-        # but modern ones respect the path. Some devices fail if path isn't sdcard.
-        # Safest is /sdcard/window_dump.xml
-
+    async def dump_hierarchy(self) -> str:
+        """Dumps the current UI hierarchy and returns the XML string."""
         remote_path = "/sdcard/window_dump.xml"
         await self._adb_cmd("shell", "uiautomator", "dump", remote_path)
 
@@ -54,37 +50,47 @@ class MobileDevice:
 
         try:
             if not os.path.exists(temp_local):
-                # Fallback: sometimes dump fails silently or to a different path
-                return BeautifulSoup("<hierarchy></hierarchy>", "xml")
+                return "<hierarchy></hierarchy>"
 
             with open(temp_local, "r", encoding="utf-8", errors="ignore") as f:
                 xml_content = f.read()
-            soup = BeautifulSoup(xml_content, "xml")
-            return soup
+            return xml_content
         finally:
             if os.path.exists(temp_local):
                 os.remove(temp_local)
 
     async def find_element(self, **kwargs) -> Optional[MobileElement]:
-        """Finds a single element matching criteria."""
-        soup = await self.dump_hierarchy()
-
-        # Handle 'resource_id' to 'resource-id' conversion and 'class_name' to 'class'
-        if "resource_id" in kwargs:
-            kwargs["resource-id"] = kwargs.pop("resource_id")
-        if "class_name" in kwargs:
-            kwargs["class"] = kwargs.pop("class_name")
-
-        tag = soup.find(attrs=kwargs) if kwargs else None
-        if tag:
-            return MobileElement(self, tag)
-        return None
+        """Finds a single element matching criteria (id, text, xpath, etc.)."""
+        elements = await self.find_elements(**kwargs)
+        return elements[0] if elements else None
 
     async def find_elements(self, **kwargs) -> List[MobileElement]:
         """Finds all elements matching criteria."""
-        soup = await self.dump_hierarchy()
+        xml_content = await self.dump_hierarchy()
 
-        # Handle 'resource_id' to 'resource-id' conversion and 'class_name' to 'class'
+        # Handle XPath
+        if "xpath" in kwargs:
+            xpath = kwargs["xpath"]
+            tree = ET.fromstring(xml_content.encode('utf-8'))
+            nodes = tree.xpath(xpath)
+            # nodes might be elements or strings/ints depending on xpath
+            return [MobileElement(self, BeautifulSoup(ET.tostring(node), "xml").find()) for node in nodes if isinstance(node, ET._Element)]
+
+        # Handle BeautifulSoup search
+        soup = BeautifulSoup(xml_content, "xml")
+
+        # Smart query: searches in text, content-desc, and resource-id
+        if "query" in kwargs:
+            query = kwargs.pop("query")
+            # This is a bit complex for soup.find_all, so we'll do it manually
+            tags = soup.find_all(lambda t: (
+                query in (t.get("text") or "") or
+                query in (t.get("content-desc") or "") or
+                query in (t.get("resource-id") or "")
+            ))
+            return [MobileElement(self, tag) for tag in tags]
+
+        # Standard attribute mapping
         if "resource_id" in kwargs:
             kwargs["resource-id"] = kwargs.pop("resource_id")
         if "class_name" in kwargs:
@@ -92,6 +98,16 @@ class MobileDevice:
 
         tags = soup.find_all(attrs=kwargs) if kwargs else []
         return [MobileElement(self, tag) for tag in tags]
+
+    async def wait_for_element(self, timeout: float = 10.0, **kwargs) -> MobileElement:
+        """Waits for an element to appear."""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            el = await self.find_element(**kwargs)
+            if el:
+                return el
+            await asyncio.sleep(0.5)
+        raise TimeoutError(f"Element {kwargs} not found within {timeout}s")
 
     async def tap(self, x: int, y: int):
         """Taps at specific coordinates."""
