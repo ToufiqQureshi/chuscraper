@@ -397,10 +397,14 @@ class ElementInteractionMixin(ElementMixin):
             return result[1]
 
     async def get_position(self, abs: bool = False) -> Position | None:
-        if not self.remote_object or not self.parent or not self.object_id:
-             setattr(self, '_remote_object', await self.tab.send(
-                cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
-            ))
+        if not self.remote_object or not self.object_id:
+             try:
+                 setattr(self, '_remote_object', await self.tab.send(
+                    cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
+                ))
+             except Exception as e:
+                 logger.debug(f"Failed to resolve node for position: {e}")
+                 return None
         try:
             quads = await self.tab.send(
                 cdp.dom.get_content_quads(object_id=self.remote_object.object_id)
@@ -476,6 +480,10 @@ class ElementInteractionMixin(ElementMixin):
         await self.tab.send(
             cdp.input_.dispatch_mouse_event("mouseReleased", x=center[0], y=center[1])
         )
+
+    async def hover(self) -> None:
+        """Alias for mouse_move to hover cursor over the element."""
+        await self.mouse_move()
 
     async def mouse_drag(
         self,

@@ -2,10 +2,13 @@ from __future__ import annotations
 from .base import TabMixin
 from typing import TYPE_CHECKING, List, Optional, Union, Any, cast
 import asyncio
+import logging
 from .. import element
 from .. import util
 from ... import cdp
 from ..connection import ProtocolException
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..tab import Tab
@@ -81,61 +84,99 @@ class DomMixin(TabMixin):
     ) -> List[Element]:
         """
         equivalent of javascripts document.querySelectorAll.
+        Uses runtime evaluation to completely bypass stale doc nodes (-32000 errors).
         """
-        doc: Any
-        if not _node:
-            doc = await self.send(cdp.dom.get_document(-1, True))
-        else:
-            doc = _node
-            if getattr(doc, "node_name", "") == "IFRAME":
-                 # Handle IFRAME or Element wrapping IFRAME
-                 if hasattr(doc, "content_document"):
-                     doc = doc.content_document
-        node_ids = []
-
-        try:
-            node_ids = await self.send(
-                cdp.dom.query_selector_all(doc.node_id, selector)
-            )
-        except ProtocolException as e:
-            if _node is not None:
-                if e.message is not None and "could not find node" in e.message.lower():
-                    if getattr(_node, "__last", None):
-                        delattr(_node, "__last")
-                        return []
-                    # if supplied node is not found, the dom has changed since acquiring the element
-                    # therefore we need to update our passed node and try again
-                    if isinstance(_node, element.Element):
-                        await _node.update()
-                    # make sure this isn't turned into infinite loop
-                    setattr(_node, "__last", True)
-                    return await self.query_selector_all(selector, _node)
-            else:
-                if e.message is not None and "could not find node" in e.message.lower():
-                    # The document node is stale; refetch and retry once
-                    doc = await self.send(cdp.dom.get_document(-1, True))
-                    # Prevent double-retry by marking this node as 'last attempt'
-                    setattr(doc, "__last", True)
-                    return await self.query_selector_all(selector, doc)
-
-                # assuming disable_dom_agent is available on Tab
-                if hasattr(self.tab, "disable_dom_agent"):
-                    await self.tab.disable_dom_agent()
-                raise
-        if not node_ids:
-            return []
         items = []
-
-        for nid in node_ids:
-            node = util.filter_recurse(doc, lambda n: n.node_id == nid)
-            # we pass along the retrieved document tree,
-            # to improve performance
-            if not node:
-                continue
-            elem = element.create(node, self.tab, doc)
-            items.append(elem)
-
+        selector = selector.strip()
+        
+        # We need the document tree reference for Element creation
+        # Wait for tree and enable agent
+        await self.send(cdp.dom.enable())
+        doc = await self.send(cdp.dom.get_document(-1, True))
+        
+        try:
+            node_ids = await self.send(cdp.dom.query_selector_all(doc.node_id, selector))
+            if node_ids:
+                for nid in node_ids:
+                    node = util.filter_recurse(doc, lambda n: n.node_id == nid)
+                    if node:
+                        elem = element.create(node, self.tab, doc)
+                        if elem: items.append(elem)
+                if items: return items
+        except ProtocolException:
+            pass
+            
+        # JS Fallback: Map all attributes and build synthetic node proxies
+        try:
+            js_code = f"""
+            (function() {{
+                let els = document.querySelectorAll(`{selector}`);
+                if (!els || els.length === 0) return [];
+                
+                let results = [];
+                for(let i=0; i<els.length; i++) {{
+                    let el = els[i];
+                    let attrs = [];
+                    for (let attr of el.attributes) {{
+                        attrs.push(attr.name);
+                        attrs.push(attr.value);
+                    }}
+                    results.push({{
+                        nodeName: el.tagName,
+                        nodeValue: el.nodeValue || "",
+                        nodeType: el.nodeType,
+                        attributes: attrs,
+                        index: i
+                    }});
+                }}
+                return results;
+            }})()
+            """
+            
+            res, _ = await self.send(
+                cdp.runtime.evaluate(expression=js_code, return_by_value=True)
+            )
+            
+            if res and res.value:
+                for node_data in res.value:
+                    synthetic_node = cdp.dom.Node(
+                        node_id=cdp.dom.NodeId(-1),
+                        backend_node_id=cdp.dom.BackendNodeId(-1),
+                        node_type=node_data.get("nodeType", 1),
+                        node_name=node_data.get("nodeName", ""),
+                        local_name=node_data.get("nodeName", "").lower(),
+                        node_value=node_data.get("nodeValue", ""),
+                        attributes=node_data.get("attributes", [])
+                    )
+                    
+                    idx = node_data.get("index", 0)
+                    js_obj_code = f"document.querySelectorAll(`{selector}`)[{idx}]"
+                    obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
+                    
+                    elem = element.create(synthetic_node, self.tab, doc)
+                    if elem and obj_res and obj_res.object_id:
+                        elem._remote_object = obj_res
+                        items.append(elem)
+                        
+        except Exception as e:
+            logger.debug(f"query_selector_all JS evaluation failed: {e}")
+            
         return items
+
+    async def resolve_node_id(self, node_id: cdp.dom.NodeId, doc: cdp.dom.Node) -> Element | None:
+        """Helper to safely build an Element from a node_id and doc tree."""
+        node = util.filter_recurse(doc, lambda n: n.node_id == node_id)
+        if not node:
+             logger.info(f"Node {node_id} not found locally in doc tree via filter_recurse")
+             try:
+                 node = await self.send(cdp.dom.describe_node(node_id=node_id, depth=-1, pierce=True))
+                 logger.info(f"Describe node for {node_id} returned {node}")
+             except Exception as e:
+                 logger.info(f"Describe node failed for {node_id}: {e}")
+                 return None
+        if not node:
+             return None
+        return element.create(node, self.tab, doc)
 
     async def query_selector(
         self,
@@ -146,73 +187,69 @@ class DomMixin(TabMixin):
         find single element based on css selector string
         """
         selector = selector.strip()
-
-        doc: Any
-        if not _node:
-            await self.send(cdp.dom.enable())
-            doc = await self.send(cdp.dom.get_document(-1, True))
-        else:
-            doc = _node
-            if getattr(doc, "node_name", "") == "IFRAME":
-                 if hasattr(doc, "content_document"):
-                     doc = doc.content_document
-        node_id = None
-
+        
+        await self.send(cdp.dom.enable())
+        doc = await self.send(cdp.dom.get_document(-1, True))
+        
         try:
             node_id = await self.send(cdp.dom.query_selector(doc.node_id, selector))
-            if not node_id and not _node:
-                 # If not found in current doc tree and we are at root,
-                 # try refreshing doc tree once
-                 await self.send(cdp.dom.enable())
-                 doc = await self.send(cdp.dom.get_document(-1, True))
-                 node_id = await self.send(cdp.dom.query_selector(doc.node_id, selector))
-
-            # If STILL not found, and it's a simple selector, try JS fallback
-            if not node_id and not _node:
-                 logger.debug(f"Selector {selector} not found via CDP, trying JS fallback")
-                 try:
-                     # 1. Evaluate to find element and return as remote object
-                     res, err = await self.send(cdp.runtime.evaluate(
-                         f"document.querySelector('{selector}')",
-                         user_gesture=True
-                     ))
-                     if res and res.object_id:
-                         # 2. Convert remote object to node id
-                         node_id = await self.send(cdp.dom.request_node(object_id=res.object_id))
-                         # 3. Refresh tree and describe node to be safe
-                         doc = await self.send(cdp.dom.get_document(-1, True))
-                 except Exception as e:
-                     logger.debug(f"JS fallback failed for {selector}: {e}")
-
-        except ProtocolException as e:
-            if _node is not None:
-                if e.message is not None and "could not find node" in e.message.lower():
-                    if getattr(_node, "__last", None):
-                        delattr(_node, "__last")
-                        return None
-                    if isinstance(_node, element.Element):
-                        await _node.update()
-                    setattr(_node, "__last", True)
-                    return await self.query_selector(selector, _node)
-            elif (
-                e.message is not None
-                and "could not find node" in e.message.lower()
-                and doc
-            ):
-                await self.send(cdp.dom.enable())
-                doc = await self.send(cdp.dom.get_document(-1, True))
-                setattr(doc, "__last", True)
-                return await self.query_selector(selector, doc)
-            else:
-                if hasattr(self.tab, "disable_dom_agent"):
-                    await self.tab.disable_dom_agent()
-                raise
-        if not node_id:
-            return None
-        node = util.filter_recurse(doc, lambda n: n.node_id == node_id)
-        if not node:
-            return None
-        return element.create(node, self.tab, doc)
+            if node_id:
+                node = util.filter_recurse(doc, lambda n: n.node_id == node_id)
+                if node: return element.create(node, self.tab, doc)
+        except ProtocolException:
+            pass
+            
+        # JS Fallback: Manually map attributes if node fails to attach to CDP Tree
+        try:
+            js_code = f"""
+            (function() {{
+                let el = document.querySelector(`{selector}`);
+                if (!el) return null;
+                
+                let attrs = [];
+                for (let attr of el.attributes) {{
+                    attrs.push(attr.name);
+                    attrs.push(attr.value);
+                }}
+                return {{
+                    nodeName: el.tagName,
+                    nodeValue: el.nodeValue || "",
+                    nodeType: el.nodeType,
+                    attributes: attrs,
+                }};
+            }})()
+            """
+            
+            res, _ = await self.send(
+                cdp.runtime.evaluate(expression=js_code, return_by_value=True)
+            )
+            
+            if res and res.value:
+                # Create a synthetic DOM node since Chrome DevTools refuses to link it
+                synthetic_node = cdp.dom.Node(
+                    node_id=cdp.dom.NodeId(-1),
+                    backend_node_id=cdp.dom.BackendNodeId(-1),
+                    node_type=res.value.get("nodeType", 1),
+                    node_name=res.value.get("nodeName", ""),
+                    local_name=res.value.get("nodeName", "").lower(),
+                    node_value=res.value.get("nodeValue", ""),
+                    attributes=res.value.get("attributes", [])
+                )
+                
+                # We still need the original object ID to interact with it via evaluate
+                js_obj_code = f"document.querySelector(`{selector}`)"
+                obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
+                
+                elem = element.create(synthetic_node, self.tab, doc)
+                if elem and obj_res and obj_res.object_id:
+                    elem._remote_object = obj_res
+                    
+                return elem
+                
+        except Exception as e:
+             logger.debug(f"JS fallback synthetic proxy failed: {e}")
+             
+        return None
 
     async def resolve_node(self, backend_node_id: int) -> Element:
         """

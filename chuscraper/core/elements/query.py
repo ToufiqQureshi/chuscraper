@@ -64,16 +64,39 @@ class ElementQueryMixin(ElementMixin):
         res = await self.select_all(selector, adaptive, identifier, auto_save, percentage)
         return res[0] if res else None
 
+    async def _get_safe_outer_html(self) -> str:
+        """Helper to safely extract HTML even if NodeId drops from DevTools Agent tree"""
+        try:
+            return await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+        except Exception:
+            # Fallback 1: Absolute worst-case scenario: we construct the HTML manually from our cached Element state
+            # since DevTools drops the active node mapping instantly after finding it on dynamic sites
+            node_name = self.node.node_name.lower()
+            if node_name == "#text":
+                return self.node.node_value or ""
+                
+            attrs_str = ""
+            if hasattr(self.node, 'attributes') and self.node.attributes:
+                attrs = dict(zip(self.node.attributes[0::2], self.node.attributes[1::2]))
+                for k, v in attrs.items():
+                    attrs_str += f' {k}="{v}"'
+            
+            # Since to_text/to_markdown are used for content extraction, giving it a synthetic wrapper
+            # allows our Parsers to succeed even if we lost the live DOM connection.
+            return f"<{node_name}{attrs_str}>{self.node.node_value or ''}</{node_name}>"
+
     async def to_markdown(self) -> str:
         """Converts this element to Markdown."""
-        html = await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+        html = await self._get_safe_outer_html()
+        if not html: return ""
         sel = ChuSelector(html, url=self.tab.url)
         content_gen = Convertor._extract_content(sel, extraction_type="markdown")
         return "".join(content_gen)
 
     async def to_text(self) -> str:
         """Converts this element to plain text."""
-        html = await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+        html = await self._get_safe_outer_html()
+        if not html: return ""
         sel = ChuSelector(html, url=self.tab.url)
         content_gen = Convertor._extract_content(sel, extraction_type="text")
         return "".join(content_gen)
