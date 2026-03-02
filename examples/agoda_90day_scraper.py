@@ -6,9 +6,13 @@ from datetime import datetime, timedelta
 from chuscraper.mobile import MobileDevice
 
 # --- CONFIGURATION ---
-HOTEL_NAME = "Aavri Hotel"  # Specify the hotel you want to track
+HOTEL_NAME = "Aavri Hotel"
 DAYS_TO_SCRAPE = 90
 OUTPUT_FILE = "agoda_prices.csv"
+
+# --- TIPS ---
+# Use examples/mobile_inspector.py to find the EXACT index or XPath
+# of the button if multiple buttons have the same text.
 
 async def scrape_agoda():
     device = await MobileDevice().connect()
@@ -29,69 +33,55 @@ async def scrape_agoda():
         print(f"\n--- Scraping for {date_str} ---")
 
         try:
-            # 1. Reset to 'All rooms' screen or Home if needed
-            # For now, we assume we're on the screen where search can be initiated
-
-            # 2. Click on Date Selection (usually shows current dates)
-            # We use 'query' to find elements containing date text or 'Mon, Mar 02' format
-            # Or use coordinates if the layout is very stable
-            date_picker = await device.find_element(query="Mar") # Partial match for month
+            # 1. Select Date Picker
+            # If multiple 'Mar' elements exist, we can use an index: (//node[contains(@text, 'Mar')])[1]
+            date_picker = await device.find_element(xpath="(//node[contains(@text, 'Mar') or contains(@text, 'Feb')])[1]")
             if date_picker:
                 await date_picker.click()
                 await asyncio.sleep(2)
 
-            # 3. Select Dates in Calendar
-            # This is app-specific. Typically involves clicking the day number.
-            # Example: find element with text "2" (the day)
-            day_el = await device.find_element(text=str(checkin_date.day))
-            if day_el:
-                await day_el.click()
-                # Wait a bit and click checkout day
+            # 2. Select Days (Using exact text for day numbers)
+            # To be precise, we look for nodes that are clickable AND have the day text
+            checkin_el = await device.find_element(xpath=f"//node[@text='{checkin_date.day}' and @clickable='true']")
+            if checkin_el:
+                await checkin_el.click()
                 await asyncio.sleep(1)
-                checkout_el = await device.find_element(text=str(checkout_date.day))
-                if checkout_el:
-                    await checkout_el.click()
 
-            # Confirm dates (Look for 'Update' or 'Apply' or 'Select')
-            confirm_btn = await device.find_element(query="Update") or await device.find_element(query="Select")
+            checkout_el = await device.find_element(xpath=f"//node[@text='{checkout_date.day}' and @clickable='true']")
+            if checkout_el:
+                await checkout_el.click()
+
+            # Confirm dates (Try Update button)
+            confirm_btn = await device.find_element(xpath="//node[@text='Update' or @text='Select' or @text='Apply']")
             if confirm_btn:
                 await confirm_btn.click()
                 await asyncio.sleep(1)
 
-            # 4. Click SEARCH
-            search_btn = await device.wait_for_element(query="Search", timeout=5)
+            # 3. Click SEARCH
+            # If there are multiple Search buttons, use indexing: (//node[@text='Search'])[1]
+            search_btn = await device.wait_for_element(xpath="(//node[@text='Search'])[1]", timeout=5)
             await search_btn.click()
             print("Searching...")
 
-            # 5. Wait for Results and find Hotel
-            # We wait for the hotel name to appear
+            # 4. Find Hotel and extract Price
             hotel_el = await device.wait_for_element(query=HOTEL_NAME, timeout=15)
             if hotel_el:
                 print(f"Found {HOTEL_NAME}!")
-                # Sometimes we need to click it to see the final price
                 await hotel_el.click()
                 await asyncio.sleep(5)
 
-                # 6. Extract Price
-                # Prices usually have currency symbols like 'AED' or '₹'
-                # We can use XPath to find a node near 'Total price' or similar
-                price_el = await device.find_element(xpath="//node[contains(@text, 'AED') or contains(@text, '₹')]")
+                # Extract Price near specific currency/symbol
+                price_el = await device.find_element(xpath="(//node[contains(@text, 'AED') or contains(@text, '₹')])[1]")
                 if price_el:
                     price_text = price_el.get_text()
                     print(f"Price for {date_str}: {price_text}")
-
-                    # Save to CSV
                     with open(OUTPUT_FILE, mode='a', newline='', encoding='utf-8') as f:
                         writer = csv.writer(f)
                         writer.writerow([date_str, HOTEL_NAME, price_text, "Success"])
-                else:
-                    print(f"Could not find price for {date_str}")
 
-            # Go back to search screen for next iteration
+            # Return to search
             await device.press_keycode(4) # BACK
             await asyncio.sleep(2)
-            await device.press_keycode(4) # BACK (if still in details)
-            await asyncio.sleep(1)
 
         except Exception as e:
             print(f"Error on {date_str}: {e}")
@@ -99,11 +89,10 @@ async def scrape_agoda():
                 writer = csv.writer(f)
                 writer.writerow([date_str, HOTEL_NAME, "N/A", f"Error: {str(e)}"])
 
-            # Try to recover by going back to home
-            await device.press_keycode(3) # HOME
-            await asyncio.sleep(5)
-            # Re-open Agoda (requires package name)
-            await device._adb_cmd("shell", "monkey", "-p", "com.agoda.mobile.consumer", "-c", "android.intent.category.LAUNCHER", "1")
+            # Recovery: Go home and re-launch
+            await device.press_keycode(3)
+            await asyncio.sleep(2)
+            await device._adb_cmd("shell", "monkey", "-p", "com.agoda.mobile.consumer", "1")
             await asyncio.sleep(10)
 
 if __name__ == "__main__":

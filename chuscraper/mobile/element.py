@@ -20,7 +20,6 @@ class MobileElement:
 
         try:
             # Example: [144,2121][304,2206]
-            # Use regex to be more robust
             match = re.findall(r"\[(\d+),(\d+)\]", bounds_str)
             if len(match) == 2:
                 x1, y1 = map(int, match[0])
@@ -45,11 +44,12 @@ class MobileElement:
         """Clicks then types text."""
         await self.click()
         if clear:
-            # Simple way to clear: select all and delete
-            # (Requires the field to support this keyboard combo)
-            # Home, then Delete multiple times is safer but slower
-            # For now, we'll just append or assume it's fresh
-            pass
+            # Basic clear logic: move to end and backspace
+            # 123 is KEYCODE_MOVE_END, 67 is KEYCODE_DEL
+            await self.device.press_keycode(123)
+            for _ in range(30): # Backspace 30 times as a safe guess
+                await self.device.press_keycode(67)
+
         await self.device.input_text(text)
 
     def get_text(self) -> str:

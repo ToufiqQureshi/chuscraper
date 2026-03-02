@@ -39,8 +39,8 @@ class MobileDevice:
         cmd = ["-s", self.serial] + list(args)
         return await run_adb(cmd, timeout=timeout)
 
-    async def dump_hierarchy(self) -> str:
-        """Dumps the current UI hierarchy and returns the XML string."""
+    async def dump_raw_hierarchy(self) -> str:
+        """Dumps the current UI hierarchy and returns the raw XML string."""
         remote_path = "/sdcard/window_dump.xml"
         await self._adb_cmd("shell", "uiautomator", "dump", remote_path)
 
@@ -59,6 +59,11 @@ class MobileDevice:
             if os.path.exists(temp_local):
                 os.remove(temp_local)
 
+    async def dump_hierarchy(self) -> BeautifulSoup:
+        """Dumps the current UI hierarchy and returns a BeautifulSoup object (backward compatible)."""
+        xml_content = await self.dump_raw_hierarchy()
+        return BeautifulSoup(xml_content, "xml")
+
     async def find_element(self, **kwargs) -> Optional[MobileElement]:
         """Finds a single element matching criteria (id, text, xpath, etc.)."""
         elements = await self.find_elements(**kwargs)
@@ -66,15 +71,17 @@ class MobileDevice:
 
     async def find_elements(self, **kwargs) -> List[MobileElement]:
         """Finds all elements matching criteria."""
-        xml_content = await self.dump_hierarchy()
+        xml_content = await self.dump_raw_hierarchy()
 
         # Handle XPath
         if "xpath" in kwargs:
             xpath = kwargs["xpath"]
-            tree = ET.fromstring(xml_content.encode('utf-8'))
-            nodes = tree.xpath(xpath)
-            # nodes might be elements or strings/ints depending on xpath
-            return [MobileElement(self, BeautifulSoup(ET.tostring(node), "xml").find()) for node in nodes if isinstance(node, ET._Element)]
+            try:
+                tree = ET.fromstring(xml_content.encode('utf-8'))
+                nodes = tree.xpath(xpath)
+                return [MobileElement(self, BeautifulSoup(ET.tostring(node), "xml").find()) for node in nodes if isinstance(node, ET._Element)]
+            except Exception:
+                return []
 
         # Handle BeautifulSoup search
         soup = BeautifulSoup(xml_content, "xml")
@@ -82,7 +89,6 @@ class MobileDevice:
         # Smart query: searches in text, content-desc, and resource-id
         if "query" in kwargs:
             query = kwargs.pop("query")
-            # This is a bit complex for soup.find_all, so we'll do it manually
             tags = soup.find_all(lambda t: (
                 query in (t.get("text") or "") or
                 query in (t.get("content-desc") or "") or
@@ -108,6 +114,26 @@ class MobileDevice:
                 return el
             await asyncio.sleep(0.5)
         raise TimeoutError(f"Element {kwargs} not found within {timeout}s")
+
+    async def get_clickable_elements(self) -> List[Dict[str, Any]]:
+        """Returns a list of all clickable elements on the screen for inspection."""
+        xml_content = await self.dump_raw_hierarchy()
+        soup = BeautifulSoup(xml_content, "xml")
+
+        clickables = soup.find_all(lambda t: t.get("clickable") == "true" or t.get("long-clickable") == "true")
+
+        summary = []
+        for i, tag in enumerate(clickables):
+            summary.append({
+                "index": i,
+                "text": tag.get("text", ""),
+                "resource_id": tag.get("resource-id", ""),
+                "content_desc": tag.get("content-desc", ""),
+                "class": tag.get("class", ""),
+                "bounds": tag.get("bounds", ""),
+                "xpath": f"(//node[@clickable='true'])[{i+1}]"
+            })
+        return summary
 
     async def tap(self, x: int, y: int):
         """Taps at specific coordinates."""

@@ -19,7 +19,7 @@ async def test_find_element_by_text(mock_xml_dump):
     device = MobileDevice(serial="test_serial")
     device._connected = True
 
-    with patch.object(MobileDevice, 'dump_hierarchy', return_value=mock_xml_dump):
+    with patch.object(MobileDevice, 'dump_raw_hierarchy', return_value=mock_xml_dump):
         el = await device.find_element(text="Search")
         assert el is not None
         assert el.get_text() == "Search"
@@ -30,7 +30,7 @@ async def test_find_element_by_query(mock_xml_dump):
     device = MobileDevice(serial="test_serial")
     device._connected = True
 
-    with patch.object(MobileDevice, 'dump_hierarchy', return_value=mock_xml_dump):
+    with patch.object(MobileDevice, 'dump_raw_hierarchy', return_value=mock_xml_dump):
         # Query should match partial text
         el = await device.find_element(query="AED")
         assert el is not None
@@ -46,7 +46,7 @@ async def test_find_element_by_xpath(mock_xml_dump):
     device = MobileDevice(serial="test_serial")
     device._connected = True
 
-    with patch.object(MobileDevice, 'dump_hierarchy', return_value=mock_xml_dump):
+    with patch.object(MobileDevice, 'dump_raw_hierarchy', return_value=mock_xml_dump):
         # XPath matching node with text containing 'AED'
         el = await device.find_element(xpath="//node[contains(@text, 'AED')]")
         assert el is not None
