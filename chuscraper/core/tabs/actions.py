@@ -89,7 +89,7 @@ class ActionsMixin(TabMixin):
              await self.send(self.cdp.input_.dispatch_key_event(**cluster))
 
     async def mouse_move(
-        self, x: float, y: float, steps: int = 10, flash: bool = False
+        self, x: float, y: float, steps: int = 10
     ) -> None:
         steps = 1 if (not steps or steps < 1) else steps
         # probably the worst waay of calculating this. but couldn't think of a better solution today.
@@ -98,8 +98,6 @@ class ActionsMixin(TabMixin):
             step_size_y = y // steps
             pathway = [(step_size_x * i, step_size_y * i) for i in range(steps + 1)]
             for point in pathway:
-                if flash:
-                    await self.flash_point(point[0], point[1])
                 await self.send(
                     cdp.input_.dispatch_mouse_event(
                         "mouseMoved", x=point[0], y=point[1]
@@ -107,13 +105,9 @@ class ActionsMixin(TabMixin):
                 )
         else:
             await self.send(cdp.input_.dispatch_mouse_event("mouseMoved", x=x, y=y))
-        if flash:
-            await self.flash_point(x, y)
-        else:
-            await self.tab.sleep(0.05)
+
+        await self.tab.sleep(0.05)
         await self.send(cdp.input_.dispatch_mouse_event("mouseReleased", x=x, y=y))
-        if flash:
-            await self.flash_point(x, y)
 
     async def mouse_click(
         self,
@@ -123,7 +117,6 @@ class ActionsMixin(TabMixin):
         buttons: typing.Optional[int] = 1,
         modifiers: typing.Optional[int] = 0,
         _until_event: typing.Optional[type] = None,
-        flash: typing.Optional[bool] = False,
     ) -> None:
         """native click on position x,y
         :param y:
@@ -159,8 +152,6 @@ class ActionsMixin(TabMixin):
                 click_count=1,
             )
         )
-        if flash:
-            await self.flash_point(x, y)
 
     async def flash_point(
         self, x: float, y: float, duration: float = 0.5, size: int = 10

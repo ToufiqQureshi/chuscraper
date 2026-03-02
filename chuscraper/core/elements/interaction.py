@@ -146,16 +146,20 @@ class ElementInteractionMixin(ElementMixin):
         mode: Literal["human", "fast", "cdp"] = "human", 
         button: str = "left", 
         click_count: int = 1,
+        retry: Optional[bool] = None,
+        flash: bool = False,
         **kwargs
     ) -> None:
+        if flash:
+            await self.flash(0.1, retry=retry)
+
         if mode in ("fast", "cdp"):
-            await self.flash(0.1)
-            await self.apply("(el) => el.click()", await_promise=True)
+            await self.apply("(el) => el.click()", await_promise=True, retry=retry)
             return
 
         # Scroll into view before clicking if using mouse events
         await self.scroll_into_view()
-        pos = await self.get_position()
+        pos = await self.get_position(retry=retry)
         if not pos:
             # Fallback to fast click if position unknown
             return await self.click(mode="fast")
@@ -186,7 +190,6 @@ class ElementInteractionMixin(ElementMixin):
             ))
 
     async def fill(self, text: str) -> None:
-        await self.click(mode="cdp")  # Focus
         await self.clear_input()
         await self.send_keys(text)
 
@@ -272,15 +275,28 @@ class ElementInteractionMixin(ElementMixin):
             await_promise=True,
         )
 
-    async def send_file(self, *file_paths: PathLike) -> None:
+    async def send_file(self, *file_paths: PathLike, retry: Optional[bool] = None) -> None:
+        if retry is None:
+            config = self.tab.browser.config if self.tab.browser else None
+            retry = getattr(config, "retry_enabled", False)
+
         file_paths_as_str = [str(p) for p in file_paths]
-        await self.tab.send(
-            cdp.dom.set_file_input_files(
-                files=[*file_paths_as_str],
-                backend_node_id=self.backend_node_id,
-                object_id=self.object_id,
+        try:
+            await self.tab.send(
+                cdp.dom.set_file_input_files(
+                    files=[*file_paths_as_str],
+                    backend_node_id=self.backend_node_id,
+                    object_id=self.object_id,
+                )
             )
-        )
+        except Exception as e:
+            from ..connection import ProtocolException
+            if retry and isinstance(e, ProtocolException) and e.code == -32000:
+                logger.debug(f"Retrying send_file() on {self.node_name} after stale object_id error")
+                setattr(self, '_remote_object', None)
+                await self.update()
+                return await self.send_file(*file_paths, retry=False)
+            raise e
 
     async def focus(self) -> None:
         await self.apply("(element) => element.focus()")
@@ -351,8 +367,12 @@ class ElementInteractionMixin(ElementMixin):
         return_by_value: bool = True,
         *,
         await_promise: bool = False,
-        retry: bool = True,
+        retry: Optional[bool] = None,
     ) -> typing.Any:
+        if retry is None:
+            config = self.tab.browser.config if self.tab.browser else None
+            retry = getattr(config, "retry_enabled", False)
+
         if not self.remote_object:
              setattr(self, '_remote_object', await self.tab.send(
                 cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
@@ -388,7 +408,11 @@ class ElementInteractionMixin(ElementMixin):
                 return await self.apply(js_function, return_by_value, await_promise=await_promise, retry=False)
             raise e
 
-    async def get_position(self, abs: bool = False) -> Position | None:
+    async def get_position(self, abs: bool = False, retry: Optional[bool] = None) -> Position | None:
+        if retry is None:
+            config = self.tab.browser.config if self.tab.browser else None
+            retry = getattr(config, "retry_enabled", False)
+
         if not self.remote_object or not self.object_id:
              try:
                  setattr(self, '_remote_object', await self.tab.send(
@@ -412,7 +436,13 @@ class ElementInteractionMixin(ElementMixin):
                 pos.abs_x = abs_x
                 pos.abs_y = abs_y
             return pos
-        except:
+        except Exception as e:
+            from ..connection import ProtocolException
+            if retry and isinstance(e, ProtocolException) and e.code == -32000:
+                logger.debug(f"Retrying get_position() on {self.node_name} after stale object_id error")
+                setattr(self, '_remote_object', None)
+                await self.update()
+                return await self.get_position(abs=abs, retry=False)
             return None
 
     async def mouse_click(
@@ -422,8 +452,9 @@ class ElementInteractionMixin(ElementMixin):
         modifiers: typing.Optional[int] = 0,
         hold: bool = False,
         _until_event: typing.Optional[type] = None,
+        retry: Optional[bool] = None,
     ) -> None:
-        position = await self.get_position()
+        position = await self.get_position(retry=retry)
         if not position:
             logger.warning("could not find location for %s, not clicking", self)
             return
@@ -454,13 +485,8 @@ class ElementInteractionMixin(ElementMixin):
                 )
             ),
         )
-        try:
-            await self.flash()
-        except:  # noqa
-            pass
-
-    async def mouse_move(self) -> None:
-        position = await self.get_position()
+    async def mouse_move(self, retry: Optional[bool] = None) -> None:
+        position = await self.get_position(retry=retry)
         if not position:
             logger.warning("could not find location for %s, not moving mouse", self)
             return
@@ -473,18 +499,19 @@ class ElementInteractionMixin(ElementMixin):
             cdp.input_.dispatch_mouse_event("mouseReleased", x=center[0], y=center[1])
         )
 
-    async def hover(self) -> None:
+    async def hover(self, retry: Optional[bool] = None) -> None:
         """Alias for mouse_move to hover cursor over the element."""
-        await self.mouse_move()
+        await self.mouse_move(retry=retry)
 
     async def mouse_drag(
         self,
         destination: typing.Union[Element, typing.Tuple[int, int]],
         relative: bool = False,
         steps: int = 1,
+        retry: Optional[bool] = None,
     ) -> None:
         from ..element import Element # local import
-        start_position = await self.get_position()
+        start_position = await self.get_position(retry=retry)
         if not start_position:
             logger.warning("could not find location for %s, not dragging", self)
             return

@@ -80,8 +80,12 @@ class ElementMediaMixin(ElementMixin):
         path.write_bytes(data_bytes)
         return str(path)
 
-    async def flash(self, duration: typing.Union[float, int] = 0.5) -> None:
+    async def flash(self, duration: typing.Union[float, int] = 0.5, retry: Optional[bool] = None) -> None:
         from ..connection import ProtocolException
+
+        if retry is None:
+            config = self.tab.browser.config if self.tab.browser else None
+            retry = getattr(config, "retry_enabled", False)
 
         if not self.remote_object:
             try:
@@ -148,15 +152,23 @@ class ElementMediaMixin(ElementMixin):
         )
 
         arguments = [cdp.runtime.CallArgument(object_id=self.remote_object.object_id)]
-        await self.tab.send(
-            cdp.runtime.call_function_on(
-                script,
-                object_id=self.remote_object.object_id,
-                arguments=arguments,
-                await_promise=True,
-                user_gesture=True,
+        try:
+            await self.tab.send(
+                cdp.runtime.call_function_on(
+                    script,
+                    object_id=self.remote_object.object_id,
+                    arguments=arguments,
+                    await_promise=True,
+                    user_gesture=True,
+                )
             )
-        )
+        except Exception as e:
+            if retry and isinstance(e, ProtocolException) and e.code == -32000:
+                logger.debug(f"Retrying flash() on {self.node_name} after stale object_id error")
+                setattr(self, '_remote_object', None)
+                await self.update()
+                return await self.flash(duration=duration, retry=False)
+            raise e
 
     async def highlight_overlay(self) -> None:
         if getattr(self, "_is_highlighted", False):

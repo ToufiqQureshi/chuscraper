@@ -25,9 +25,35 @@ class TestElementInteractionFixes(unittest.IsolatedAsyncioTestCase):
         with patch('chuscraper.core.element.Element._make_attrs'):
             self.elem = Element(node=self.mock_node, tab=self.mock_tab)
 
-    async def test_apply_retries_on_stale_object_id(self):
+    async def test_fill_does_not_click_automatically(self):
+        from chuscraper.core.elements.interaction import ElementInteractionMixin
+
+        # Patching on the class because instance attribute patching failed
+        with patch.object(ElementInteractionMixin, 'click', new_callable=AsyncMock) as mock_click, \
+             patch.object(ElementInteractionMixin, 'clear_input', new_callable=AsyncMock) as mock_clear, \
+             patch.object(ElementInteractionMixin, 'send_keys', new_callable=AsyncMock) as mock_send_keys:
+
+            await self.elem.fill("test")
+            mock_click.assert_not_called()
+            mock_clear.assert_called_once()
+            mock_send_keys.assert_called_once_with("test")
+
+    async def test_apply_no_retry_by_default(self):
         from chuscraper.core.connection import ProtocolException
 
+        stale_error = ProtocolException({"code": -32000, "message": "Could not find object with given id"})
+        self.mock_tab.send.side_effect = [stale_error]
+
+        with self.assertRaises(ProtocolException):
+            await self.elem.apply("() => {}")
+
+        self.assertEqual(self.mock_tab.send.call_count, 1)
+
+    async def test_apply_retry_when_explicit(self):
+        from chuscraper.core.connection import ProtocolException
+        from chuscraper.core.elements.interaction import ElementInteractionMixin
+
+        # Set initial remote object so it doesn't try to resolve it first
         old_remote_object = MagicMock(spec=cdp.runtime.RemoteObject)
         old_remote_object.object_id = cdp.runtime.RemoteObjectId("old-id")
         self.elem._remote_object = old_remote_object
@@ -36,51 +62,23 @@ class TestElementInteractionFixes(unittest.IsolatedAsyncioTestCase):
         new_remote_object = MagicMock(spec=cdp.runtime.RemoteObject)
         new_remote_object.object_id = cdp.runtime.RemoteObjectId("new-id")
         new_remote_object.value = "success"
-
         success_result = (new_remote_object, "something")
         mock_doc = MagicMock(spec=cdp.dom.Node)
 
         self.mock_tab.send.side_effect = [
-            stale_error,        # 1. apply() call fails
-            None,               # 2. update() -> cdp.dom.enable()
-            mock_doc,           # 3. update() -> cdp.dom.get_document()
-            new_remote_object,  # 4. update() -> cdp.dom.resolve_node()
-            success_result      # 5. retry apply() call succeeds
+            stale_error,        # 1. First send() call in apply() fails
+            None,               # 2. update() -> enable
+            mock_doc,           # 3. update() -> getDocument
+            new_remote_object,  # 4. update() -> resolveNode
+            success_result      # 5. retry apply() succeeds
         ]
 
-        with patch('chuscraper.core.util.filter_recurse', return_value=self.mock_node):
-            result = await self.elem.apply("() => {}")
+        with patch('chuscraper.core.util.filter_recurse', return_value=self.mock_node), \
+             patch.object(ElementInteractionMixin, 'update', wraps=self.elem.update) as mock_update:
+            result = await self.elem.apply("() => {}", retry=True)
             self.assertEqual(result, "success")
             self.assertEqual(self.mock_tab.send.call_count, 5)
-
-    async def test_click_uses_apply_and_retries(self):
-        from chuscraper.core.connection import ProtocolException
-
-        # Mock flash on the Element class to affect all instances
-        from chuscraper.core.elements.media import ElementMediaMixin
-        with patch.object(ElementMediaMixin, 'flash', new_callable=AsyncMock):
-            old_remote_object = MagicMock(spec=cdp.runtime.RemoteObject)
-            old_remote_object.object_id = cdp.runtime.RemoteObjectId("old-click-id")
-            self.elem._remote_object = old_remote_object
-
-            stale_error = ProtocolException({"code": -32000, "message": "Could not find object with given id"})
-            new_remote_object = MagicMock(spec=cdp.runtime.RemoteObject)
-            new_remote_object.object_id = cdp.runtime.RemoteObjectId("new-click-id")
-            new_remote_object.value = None
-            success_result = (new_remote_object, "something")
-            mock_doc = MagicMock(spec=cdp.dom.Node)
-
-            self.mock_tab.send.side_effect = [
-                stale_error,        # 1. apply() via click() fails
-                None,               # 2. update() -> cdp.dom.enable()
-                mock_doc,           # 3. update() -> cdp.dom.get_document()
-                new_remote_object,  # 4. update() -> cdp.dom.resolve_node()
-                success_result      # 5. retry apply() succeeds
-            ]
-
-            with patch('chuscraper.core.util.filter_recurse', return_value=self.mock_node):
-                await self.elem.click(mode='cdp')
-                self.assertEqual(self.mock_tab.send.call_count, 5)
+            mock_update.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()
