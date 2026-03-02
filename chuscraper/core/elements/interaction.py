@@ -148,27 +148,9 @@ class ElementInteractionMixin(ElementMixin):
         click_count: int = 1,
         **kwargs
     ) -> None:
-        if mode == "fast":
-            if not self.remote_object:
-                 setattr(self, '_remote_object', await self.tab.send(
-                    cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
-                ))
-            
-            if self.remote_object.object_id is None:
-                raise ValueError("could not resolve object id for %s" % self)
-
-            arguments = [cdp.runtime.CallArgument(object_id=self.remote_object.object_id)]
+        if mode in ("fast", "cdp"):
             await self.flash(0.1)
-            await self.tab.send(
-                cdp.runtime.call_function_on(
-                    "(el) => el.click()",
-                    object_id=self.remote_object.object_id,
-                    arguments=arguments,
-                    await_promise=True,
-                    user_gesture=True,
-                    return_by_value=True,
-                )
-            )
+            await self.apply("(el) => el.click()", await_promise=True)
             return
 
         # Scroll into view before clicking if using mouse events
@@ -391,11 +373,11 @@ class ElementInteractionMixin(ElementMixin):
                     await_promise=await_promise,
                 )
             )
-            if result and result[0]:
-                if return_by_value:
-                    return result[0].value
-                return result[0]
-            elif result[1]:
+            if result:
+                if result[0]:
+                    if return_by_value:
+                        return result[0].value
+                    return result[0]
                 return result[1]
         except Exception as e:
             from ..connection import ProtocolException
