@@ -2,6 +2,7 @@ from __future__ import annotations
 from .base import TabMixin
 from typing import TYPE_CHECKING, List, Optional, Union, Any, cast
 import asyncio
+import json
 import logging
 from .. import element
 from .. import util
@@ -110,7 +111,7 @@ class DomMixin(TabMixin):
         try:
             js_code = f"""
             (function() {{
-                let els = document.querySelectorAll(`{selector}`);
+                let els = document.querySelectorAll({json.dumps(selector)});
                 if (!els || els.length === 0) return [];
                 
                 let results = [];
@@ -150,7 +151,7 @@ class DomMixin(TabMixin):
                     )
                     
                     idx = node_data.get("index", 0)
-                    js_obj_code = f"document.querySelectorAll(`{selector}`)[{idx}]"
+                    js_obj_code = f"document.querySelectorAll({json.dumps(selector)})[{idx}]"
                     obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
                     
                     elem = element.create(synthetic_node, self.tab, doc)
@@ -203,7 +204,7 @@ class DomMixin(TabMixin):
         try:
             js_code = f"""
             (function() {{
-                let el = document.querySelector(`{selector}`);
+                let el = document.querySelector({json.dumps(selector)});
                 if (!el) return null;
                 
                 let attrs = [];
@@ -237,7 +238,7 @@ class DomMixin(TabMixin):
                 )
                 
                 # We still need the original object ID to interact with it via evaluate
-                js_obj_code = f"document.querySelector(`{selector}`)"
+                js_obj_code = f"document.querySelector({json.dumps(selector)})"
                 obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
                 
                 elem = element.create(synthetic_node, self.tab, doc)

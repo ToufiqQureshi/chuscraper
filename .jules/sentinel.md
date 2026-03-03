@@ -1,0 +1,4 @@
+## 2026-03-03 - [Fix] JavaScript Injection in DomMixin Selectors
+**Vulnerability:** CSS selectors were directly interpolated into JavaScript template literals (backticks) in the `DomMixin` JS fallback logic. An attacker providing a malicious selector containing a backtick could break out of the string literal and execute arbitrary JavaScript code within the browser context.
+**Learning:** Using template literals for dynamic strings in JavaScript generated from Python is dangerous if the input is not sanitized. F-string interpolation with backticks in JS is a common pattern that easily leads to XSS-like vulnerabilities.
+**Prevention:** Always use `json.dumps()` to sanitize and quote Python strings before injecting them into JavaScript code. Replace backticks in JS code with `json.dumps()` output to ensure the string is properly escaped and treated as a standard string literal.
