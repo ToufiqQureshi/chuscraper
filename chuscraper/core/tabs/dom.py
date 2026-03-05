@@ -2,6 +2,7 @@ from __future__ import annotations
 from .base import TabMixin
 from typing import TYPE_CHECKING, List, Optional, Union, Any, cast
 import asyncio
+import json
 import logging
 from .. import element
 from .. import util
@@ -108,9 +109,10 @@ class DomMixin(TabMixin):
             
         # JS Fallback: Map all attributes and build synthetic node proxies
         try:
+            escaped_selector = json.dumps(selector)
             js_code = f"""
             (function() {{
-                let els = document.querySelectorAll(`{selector}`);
+                let els = document.querySelectorAll({escaped_selector});
                 if (!els || els.length === 0) return [];
                 
                 let results = [];
@@ -149,8 +151,8 @@ class DomMixin(TabMixin):
                         attributes=node_data.get("attributes", [])
                     )
                     
-                    idx = node_data.get("index", 0)
-                    js_obj_code = f"document.querySelectorAll(`{selector}`)[{idx}]"
+                    idx = int(node_data.get("index", 0))
+                    js_obj_code = f"document.querySelectorAll({escaped_selector})[{idx}]"
                     obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
                     
                     elem = element.create(synthetic_node, self.tab, doc)
@@ -201,9 +203,10 @@ class DomMixin(TabMixin):
             
         # JS Fallback: Manually map attributes if node fails to attach to CDP Tree
         try:
+            escaped_selector = json.dumps(selector)
             js_code = f"""
             (function() {{
-                let el = document.querySelector(`{selector}`);
+                let el = document.querySelector({escaped_selector});
                 if (!el) return null;
                 
                 let attrs = [];
@@ -237,7 +240,7 @@ class DomMixin(TabMixin):
                 )
                 
                 # We still need the original object ID to interact with it via evaluate
-                js_obj_code = f"document.querySelector(`{selector}`)"
+                js_obj_code = f"document.querySelector({escaped_selector})"
                 obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
                 
                 elem = element.create(synthetic_node, self.tab, doc)
