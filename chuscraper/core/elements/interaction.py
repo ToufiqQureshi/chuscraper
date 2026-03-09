@@ -11,6 +11,8 @@ from ... import cdp
 from .. import util
 from ..config import PathLike
 from ..keys import KeyEvents, KeyPressEvent, SpecialKeys
+from ..connection import ProtocolException
+import re
 
 if TYPE_CHECKING:
     from ..element import Element
@@ -72,47 +74,89 @@ class ElementInteractionMixin(ElementMixin):
         Updates the element's node information and remote object handle.
         Crucial for preventing 'Could not find node' errors after DOM changes.
         """
+        if int(self.backend_node_id) <= 0:
+            # Synthetic node: can't update via DOM tree, must re-evaluate JS
+            await self._re_evaluate_synthetic()
+            return self  # type: ignore
+
         if _node:
             doc = _node
         else:
             # We must enable DOM before fetching document to ensure node tracking
             await self.tab.send(cdp.dom.enable())
             doc = await self.tab.send(cdp.dom.get_document(-1, True))
-        
-        current_node = getattr(self, '_node')
+
+        current_node = getattr(self, "_node")
         updated_node = util.filter_recurse(
             doc, lambda n: n.backend_node_id == current_node.backend_node_id
         )
 
         if updated_node:
             logger.debug(f"Node updated for element {self.node_name}")
-            setattr(self, '_node', updated_node)
+            setattr(self, "_node", updated_node)
         else:
             # If still not found in tree, the node might be detached or in a different branch.
             # We attempt to describe the node directly via backend id as a last resort.
             try:
-                describe_res = await self.tab.send(cdp.dom.describe_node(backend_node_id=current_node.backend_node_id))
+                describe_res = await self.tab.send(
+                    cdp.dom.describe_node(backend_node_id=current_node.backend_node_id)
+                )
                 if describe_res:
-                     setattr(self, '_node', describe_res)
+                    setattr(self, "_node", describe_res)
             except Exception:
-                logger.debug(f"Failed to resolve node {current_node.backend_node_id} even after refresh")
+                logger.debug(
+                    f"Failed to resolve node {current_node.backend_node_id} even after refresh"
+                )
 
-        setattr(self, '_tree', doc)
+        setattr(self, "_tree", doc)
 
         # Ensure remote object is fresh
         try:
             new_remote_obj = await self.tab.send(
-                cdp.dom.resolve_node(backend_node_id=getattr(self, '_node').backend_node_id)
+                cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
             )
-            setattr(self, '_remote_object', new_remote_obj)
+            setattr(self, "_remote_object", new_remote_obj)
         except Exception as e:
             logger.debug(f"Failed to resolve remote object for {self.node_name}: {e}")
-        
+
         self.attrs.clear()
-        if hasattr(self, '_make_attrs'):
-            self._make_attrs() # type: ignore
-            
-        return self # type: ignore
+        if hasattr(self, "_make_attrs"):
+            self._make_attrs()  # type: ignore
+
+        return self  # type: ignore
+
+    async def _re_evaluate_synthetic(self) -> bool:
+        """Helper to re-acquire remote object for synthetic nodes."""
+        selector = getattr(self, "_selector", None)
+        if not selector:
+            logger.debug(f"No selector stored for synthetic node {self.node_name}")
+            return False
+
+        try:
+            index = getattr(self, "_index", None)
+            if index is not None:
+                js_obj_code = (
+                    f"document.querySelectorAll({json.dumps(selector)})[{index}]"
+                )
+            else:
+                js_obj_code = f"document.querySelector({json.dumps(selector)})"
+
+            obj_res, _ = await self.tab.send(
+                cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False)
+            )
+            if obj_res and obj_res.object_id:
+                setattr(self, "_remote_object", obj_res)
+                logger.debug(
+                    f"Successfully re-evaluated synthetic node '{selector}' index {index}: {obj_res.object_id}"
+                )
+                return True
+            else:
+                logger.debug(f"Re-evaluation of '{selector}' returned no object")
+                setattr(self, "_remote_object", None)
+        except Exception as e:
+            logger.debug(f"Failed to re-evaluate synthetic node '{selector}': {e}")
+            setattr(self, "_remote_object", None)
+        return False
 
     async def save_to_dom(self) -> None:
         """
@@ -120,11 +164,14 @@ class ElementInteractionMixin(ElementMixin):
         :return:
         :rtype:
         """
+        if int(self.backend_node_id) <= 0:
+            raise RuntimeError("Cannot save synthetic nodes to DOM")
+
         # We need to set _remote_object
         ro = await self.tab.send(
             cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
         )
-        setattr(self, '_remote_object', ro)
+        setattr(self, "_remote_object", ro)
         await self.tab.send(cdp.dom.set_outer_html(self.node_id, outer_html=str(self)))
         await self.update()
 
@@ -142,41 +189,77 @@ class ElementInteractionMixin(ElementMixin):
             await self.tab.send(cdp.dom.remove_node(node.node_id))
 
     async def click(
-        self, 
-        mode: Literal["human", "fast", "cdp"] = "human", 
-        button: str = "left", 
+        self,
+        mode: Literal["human", "fast", "cdp"] = "human",
+        button: str = "left",
         click_count: int = 1,
-        **kwargs
+        retry: bool = True,
+        **kwargs,
     ) -> None:
+        if mode == "cdp":
+            return await self.apply("(el) => el.click()", retry=retry)
+
         if mode == "fast":
             if not self.remote_object:
-                 setattr(self, '_remote_object', await self.tab.send(
-                    cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
-                ))
-            
-            if self.remote_object.object_id is None:
+                if int(self.backend_node_id) > 0:
+                    setattr(
+                        self,
+                        "_remote_object",
+                        await self.tab.send(
+                            cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
+                        ),
+                    )
+                else:
+                    await self._re_evaluate_synthetic()
+
+            if not self.remote_object or self.remote_object.object_id is None:
                 raise ValueError("could not resolve object id for %s" % self)
 
-            arguments = [cdp.runtime.CallArgument(object_id=self.remote_object.object_id)]
-            await self.flash(0.1)
-            await self.tab.send(
-                cdp.runtime.call_function_on(
-                    "(el) => el.click()",
-                    object_id=self.remote_object.object_id,
-                    arguments=arguments,
-                    await_promise=True,
-                    user_gesture=True,
-                    return_by_value=True,
+            try:
+                # We don't want flash to fail the whole click if it has issues
+                try:
+                    await self.flash(0.1, retry=retry)
+                except Exception:
+                    pass
+
+                arguments = [
+                    cdp.runtime.CallArgument(object_id=self.remote_object.object_id)
+                ]
+                await self.tab.send(
+                    cdp.runtime.call_function_on(
+                        "(el) => el.click()",
+                        object_id=self.remote_object.object_id,
+                        arguments=arguments,
+                        await_promise=True,
+                        user_gesture=True,
+                        return_by_value=True,
+                    )
                 )
-            )
+            except (ProtocolException, Exception) as e:
+                if retry and (
+                    (isinstance(e, ProtocolException) and e.code == -32000)
+                    or "Could not find object with given id" in str(e)
+                ):
+                    if int(self.backend_node_id) > 0:
+                        await self.update()
+                    else:
+                        await self._re_evaluate_synthetic()
+                    return await self.click(
+                        mode=mode,
+                        button=button,
+                        click_count=click_count,
+                        retry=False,
+                        **kwargs,
+                    )
+                raise e
             return
 
         # Scroll into view before clicking if using mouse events
         await self.scroll_into_view()
-        pos = await self.get_position()
+        pos = await self.get_position(retry=retry)
         if not pos:
             # Fallback to fast click if position unknown
-            return await self.click(mode="fast")
+            return await self.click(mode="fast", retry=retry)
 
         target_x, target_y = pos.center
         
@@ -203,24 +286,26 @@ class ElementInteractionMixin(ElementMixin):
                 type_="mouseReleased", x=target_x, y=target_y, button=cdp.input_.MouseButton(button), click_count=click_count
             ))
 
-    async def fill(self, text: str) -> None:
-        await self.click(mode="cdp")  # Focus
-        await self.clear_input()
-        await self.send_keys(text)
+    async def fill(self, text: str, retry: bool = True) -> None:
+        await self.click(mode="cdp", retry=retry)  # Focus
+        await self.clear_input(retry=retry)
+        await self.send_keys(text, retry=retry)
 
-    async def type(self, text: str, delay: float = 0.0) -> None:
+    async def type(self, text: str, delay: float = 0.0, retry: bool = True) -> None:
         """Alias for send_keys with optional delay per char."""
         if delay > 0:
             for char in text:
-                await self.send_keys(char)
+                await self.send_keys(char, retry=retry)
                 await asyncio.sleep(delay)
         else:
-            await self.send_keys(text)
-            
+            await self.send_keys(text, retry=retry)
+
     async def send_keys(
-        self, text: typing.Union[str, SpecialKeys, typing.List[KeyEvents.Payload]]
+        self,
+        text: typing.Union[str, SpecialKeys, typing.List[KeyEvents.Payload]],
+        retry: bool = True,
     ) -> None:
-        await self.apply("(elem) => elem.focus()")
+        await self.apply("(elem) => elem.focus()", retry=retry)
         cluster_list: typing.List[KeyEvents.Payload]
         if isinstance(text, str):
             cluster_list = KeyEvents.from_text(text, KeyPressEvent.CHAR)
@@ -232,9 +317,9 @@ class ElementInteractionMixin(ElementMixin):
         for cluster in cluster_list:
             await self.tab.send(cdp.input_.dispatch_key_event(**cluster))
 
-    async def clear_input(self) -> None:
+    async def clear_input(self, retry: bool = True) -> None:
         """clears an input field"""
-        await self.apply('function (element) { element.value = "" } ')
+        await self.apply('function (element) { element.value = "" } ', retry=retry)
 
     async def clear_input_by_deleting(self) -> None:
         await self.apply(
@@ -290,15 +375,21 @@ class ElementInteractionMixin(ElementMixin):
             await_promise=True,
         )
 
-    async def send_file(self, *file_paths: PathLike) -> None:
+    async def send_file(self, *file_paths: PathLike, retry: bool = True) -> None:
         file_paths_as_str = [str(p) for p in file_paths]
-        await self.tab.send(
-            cdp.dom.set_file_input_files(
-                files=[*file_paths_as_str],
-                backend_node_id=self.backend_node_id,
-                object_id=self.object_id,
+        try:
+            await self.tab.send(
+                cdp.dom.set_file_input_files(
+                    files=[*file_paths_as_str],
+                    backend_node_id=self.backend_node_id,
+                    object_id=self.object_id,
+                )
             )
-        )
+        except ProtocolException as e:
+            if retry and e.code == -32000 and int(self.backend_node_id) > 0:
+                await self.update()
+                return await self.send_file(*file_paths, retry=False)
+            raise e
 
     async def focus(self) -> None:
         await self.apply("(element) => element.focus()")
@@ -369,42 +460,155 @@ class ElementInteractionMixin(ElementMixin):
         return_by_value: bool = True,
         *,
         await_promise: bool = False,
+        retry: bool = True,
     ) -> typing.Any:
+        # Production Fix: For synthetic nodes, use atomic evaluation to prevent object_id expiration
+        if int(self.backend_node_id) <= 0:
+            selector = getattr(self, "_selector", None)
+            if selector:
+                index = getattr(self, "_index", None)
+                find_code = (
+                    f"document.querySelectorAll({json.dumps(selector)})[{index}]"
+                    if index is not None
+                    else f"document.querySelector({json.dumps(selector)})"
+                )
+
+                # Ensure js_function is treated as a function if it's a string expression
+                func_to_call = js_function
+                if not (
+                    js_function.strip().startswith("function") or "=>" in js_function
+                ):
+                    # If it's a simple property/method name, wrap it
+                    if re.match(r"^[a-zA-Z0-9_.]+(\(\))?$", js_function.strip()):
+                        if js_function.strip().endswith("()"):
+                            method_name = js_function.strip()[:-2]
+                            func_to_call = f"(el) => el['{method_name}']()"
+                        else:
+                            func_to_call = f"(el) => el['{js_function.strip()}']"
+                    else:
+                        # Fallback for more complex expressions
+                        # Inject el/element/e aliases for convenience
+                        func_to_call = f"(el) => {{ const element=el, e=el; return ({js_function})(el); }}"
+
+                atomic_script = f"(function(el) {{ if (!el) return null; return ({func_to_call})(el); }})({find_code})"
+                try:
+                    res = await self.tab.send(
+                        cdp.runtime.evaluate(
+                            expression=atomic_script,
+                            user_gesture=True,
+                            await_promise=await_promise,
+                            return_by_value=return_by_value,
+                        )
+                    )
+                    # cdp.runtime.evaluate returns (RemoteObject, ExceptionDetails)
+                    remote_obj, errors = res
+                    if errors:
+                        # Map to ProtocolException to trigger retry if needed
+                        raise ProtocolException(
+                            {"message": errors.exception.description, "code": -32000}
+                        )
+                    if return_by_value:
+                        return remote_obj.value
+                    return remote_obj
+                except Exception as e:
+                    if retry and (
+                        "Could not find object with given id" in str(e)
+                        or (isinstance(e, ProtocolException) and e.code == -32000)
+                    ):
+                        return await self.apply(
+                            js_function,
+                            return_by_value,
+                            await_promise=await_promise,
+                            retry=False,
+                        )
+                    raise e
+
         if not self.remote_object:
-             setattr(self, '_remote_object', await self.tab.send(
-                cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
-            ))
-
-        result: typing.Tuple[
-            cdp.runtime.RemoteObject, typing.Any
-        ] = await self.tab.send(
-            cdp.runtime.call_function_on(
-                js_function,
-                object_id=self.remote_object.object_id,
-                arguments=[
-                    cdp.runtime.CallArgument(object_id=self.remote_object.object_id)
-                ],
-                return_by_value=True,
-                user_gesture=True,
-                await_promise=await_promise,
-            )
-        )
-        if result and result[0]:
-            if return_by_value:
-                return result[0].value
-            return result[0]
-        elif result[1]:
-            return result[1]
-
-    async def get_position(self, abs: bool = False) -> Position | None:
-        if not self.remote_object or not self.object_id:
-             try:
-                 setattr(self, '_remote_object', await self.tab.send(
+            setattr(
+                self,
+                "_remote_object",
+                await self.tab.send(
                     cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
-                ))
-             except Exception as e:
-                 logger.debug(f"Failed to resolve node for position: {e}")
-                 return None
+                ),
+            )
+
+        if not self.remote_object or not self.remote_object.object_id:
+            raise ValueError("could not resolve object id for %s" % self)
+
+        try:
+            result: typing.Tuple[cdp.runtime.RemoteObject, typing.Any] = (
+                await self.tab.send(
+                    cdp.runtime.call_function_on(
+                        js_function,
+                        object_id=self.remote_object.object_id,
+                        arguments=[
+                            cdp.runtime.CallArgument(
+                                object_id=self.remote_object.object_id
+                            )
+                        ],
+                        return_by_value=return_by_value,
+                        user_gesture=True,
+                        await_promise=await_promise,
+                    )
+                )
+            )
+            if result and result[0]:
+                if return_by_value:
+                    return result[0].value
+                return result[0]
+            elif len(result) > 1 and result[1]:
+                return result[1]
+        except (ProtocolException, Exception) as e:
+            if retry and (
+                (isinstance(e, ProtocolException) and e.code == -32000)
+                or "Could not find object with given id" in str(e)
+            ):
+                await self.update()
+                return await self.apply(
+                    js_function,
+                    return_by_value,
+                    await_promise=await_promise,
+                    retry=False,
+                )
+            raise e
+
+    async def get_position(
+        self, abs: bool = False, retry: bool = True
+    ) -> Position | None:
+        if int(self.backend_node_id) <= 0:
+            # Synthetic Node: Use JS to get position as CDP methods will likely fail
+            try:
+                # getBoundingClientRect gives viewport-relative coordinates
+                res = await self.apply(
+                    "(el) => { const r = el.getBoundingClientRect(); return { q: [r.left, r.top, r.right, r.top, r.right, r.bottom, r.left, r.bottom], sx: window.scrollX, sy: window.scrollY }; }",
+                    retry=retry,
+                )
+                if res and "q" in res:
+                    pos = Position(res["q"])
+                    if abs:
+                        pos.abs_x = pos.left + res["sx"] + (pos.width / 2)
+                        pos.abs_y = pos.top + res["sy"] + (pos.height / 2)
+                    return pos
+            except Exception as e:
+                logger.debug(f"JS fallback get_position failed: {e}")
+            return None
+
+        if not self.remote_object or not self.object_id:
+            try:
+                setattr(
+                    self,
+                    "_remote_object",
+                    await self.tab.send(
+                        cdp.dom.resolve_node(backend_node_id=self.backend_node_id)
+                    ),
+                )
+            except Exception as e:
+                logger.debug(f"Failed to resolve node for position: {e}")
+                return None
+
+        if not self.remote_object or not self.object_id:
+            return None
+
         try:
             quads = await self.tab.send(
                 cdp.dom.get_content_quads(object_id=self.remote_object.object_id)
@@ -413,14 +617,22 @@ class ElementInteractionMixin(ElementMixin):
                 raise Exception("could not find position for %s " % self)
             pos = Position(quads[0])
             if abs:
-                scroll_y = (await self.tab.evaluate("window.scrollY")).value  # type: ignore
-                scroll_x = (await self.tab.evaluate("window.scrollX")).value  # type: ignore
-                abs_x = pos.left + scroll_x + (pos.width / 2)
-                abs_y = pos.top + scroll_y + (pos.height / 2)
-                pos.abs_x = abs_x
-                pos.abs_y = abs_y
+                # Use evaluate to get scroll position
+                scroll_res = await self.tab.evaluate(
+                    "({x: window.scrollX, y: window.scrollY})"
+                )
+                if scroll_res and scroll_res.value:
+                    scroll_x = scroll_res.value.get("x", 0)
+                    scroll_y = scroll_res.value.get("y", 0)
+                    pos.abs_x = pos.left + scroll_x + (pos.width / 2)
+                    pos.abs_y = pos.top + scroll_y + (pos.height / 2)
             return pos
-        except:
+        except ProtocolException as e:
+            if retry and e.code == -32000:
+                await self.update()
+                return await self.get_position(abs=abs, retry=False)
+            return None
+        except Exception:
             return None
 
     async def mouse_click(
@@ -430,8 +642,9 @@ class ElementInteractionMixin(ElementMixin):
         modifiers: typing.Optional[int] = 0,
         hold: bool = False,
         _until_event: typing.Optional[type] = None,
+        retry: bool = True,
     ) -> None:
-        position = await self.get_position()
+        position = await self.get_position(retry=retry)
         if not position:
             logger.warning("could not find location for %s, not clicking", self)
             return
@@ -547,6 +760,16 @@ class ElementInteractionMixin(ElementMixin):
         )
 
     async def scroll_into_view(self) -> None:
+        if int(self.backend_node_id) <= 0:
+            try:
+                await self.apply(
+                    "(el) => el.scrollIntoView({behavior: 'auto', block: 'center', inline: 'center'})"
+                )
+                return
+            except Exception as e:
+                logger.debug(f"JS scroll_into_view failed: {e}")
+                return
+
         try:
             await self.tab.send(
                 cdp.dom.scroll_into_view_if_needed(backend_node_id=self.backend_node_id)
