@@ -147,15 +147,9 @@ class ElementMediaMixin(ElementMixin):
             .replace("\n", "")
         )
 
-        arguments = [cdp.runtime.CallArgument(object_id=self.remote_object.object_id)]
-        await self.tab.send(
-            cdp.runtime.call_function_on(
-                script,
-                object_id=self.remote_object.object_id,
-                arguments=arguments,
-                await_promise=True,
-                user_gesture=True,
-            )
+        await self.apply(
+            script,
+            await_promise=True
         )
 
     async def highlight_overlay(self) -> None:

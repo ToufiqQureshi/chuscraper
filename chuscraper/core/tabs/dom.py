@@ -154,6 +154,9 @@ class DomMixin(TabMixin):
                     obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
                     
                     elem = element.create(synthetic_node, self.tab, doc)
+                    if elem:
+                        setattr(elem, '_selector', selector)
+                        setattr(elem, '_index', idx)
                     if elem and obj_res and obj_res.object_id:
                         elem._remote_object = obj_res
                         items.append(elem)
@@ -241,6 +244,8 @@ class DomMixin(TabMixin):
                 obj_res, _ = await self.send(cdp.runtime.evaluate(expression=js_obj_code, return_by_value=False))
                 
                 elem = element.create(synthetic_node, self.tab, doc)
+                if elem:
+                    setattr(elem, '_selector', selector)
                 if elem and obj_res and obj_res.object_id:
                     elem._remote_object = obj_res
                     

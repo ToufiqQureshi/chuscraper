@@ -505,10 +505,10 @@ class ElementInteractionMixin(ElementMixin):
                     if errors:
                         # Map to ProtocolException to trigger retry if needed
                         raise ProtocolException(
-                            {"message": errors.exception.description, "code": -32000}
+                            {"message": getattr(errors.exception, "description", str(errors)), "code": -32000}
                         )
                     if return_by_value:
-                        return remote_obj.value
+                        return getattr(remote_obj, "value", None)
                     return remote_obj
                 except Exception as e:
                     if retry and (
