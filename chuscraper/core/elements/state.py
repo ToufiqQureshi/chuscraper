@@ -136,26 +136,12 @@ class ElementStateMixin(ElementMixin):
 
     @deprecated(reason="Use get() instead")
     def __getattr__(self, item: str) -> str | None:
-        # if attribute is not found on the element python object
-        # check if it may be present in the element attributes (eg, href=, src=, alt=)
-        # returns None when attribute is not found
-        # instead of raising AttributeError
         x = getattr(self.attrs, item, None)
         if x:
             return x  # type: ignore
         return None
 
     def get(self, name: str) -> str | None:
-        """
-        Returns the value of the attribute with the given name, or None if it does not exist.
-
-        For example, if the element has an attribute `href="#"`, you can retrieve it with:
-            href = element.get("href")
-
-        :param name: The name of the attribute to retrieve.
-        :return: The value of the attribute, or None if it does not exist.
-        :rtype: str | None
-        """
         try:
             x = getattr(self.attrs, name, None)
             if x:
@@ -167,50 +153,49 @@ class ElementStateMixin(ElementMixin):
     def __setattr__(self, key: str, value: typing.Any) -> None:
         if key[0] != "_":
             if key[1:] not in vars(self).keys():
-                # we probably deal with an attribute of
-                # the html element, so forward it
                 self.attrs.__setattr__(key, value)
                 return
-        # we probably deal with an attribute of
-        # the python object
         super().__setattr__(key, value)
 
     def __setitem__(self, key: str, value: typing.Any) -> None:
         if key[0] != "_":
             if key[1:] not in vars(self).keys():
-                # we probably deal with an attribute of
-                # the html element, so forward it
                 self.attrs[key] = value
 
     def __getitem__(self, item: str) -> typing.Any:
-        # we probably deal with an attribute of
-        # the html element, so forward it
         return self.attrs.get(item, None)
 
     @property
     def text(self) -> str:
-        """
-        gets the text contents of this element
-        note: this includes text in the form of script content, as those are also just 'text nodes'
-
-        :return:
-        :rtype:
-        """
         text_node = util.filter_recurse(self.node, lambda n: n.node_type == 3)
         if text_node:
             return text_node.node_value
+        if self.node_type == 3:
+            return self.node_value
         return ""
 
     @property
     def text_all(self) -> str:
-        """
-        gets the text contents of this element, and it's children in a concatenated string
-        note: this includes text in the form of script content, as those are also just 'text nodes'
-        :return:
-        :rtype:
-        """
         text_nodes = util.filter_recurse_all(self.node, lambda n: n.node_type == 3)
-        return " ".join([n.node_value for n in text_nodes])
+        if text_nodes:
+            return " ".join([n.node_value for n in text_nodes])
+        if self.node_value:
+             return self.node_value
+        return ""
+
+    async def to_text(self) -> str:
+        """Async version of text_all that uses JS for absolute accuracy in production."""
+        try:
+            res = await self.apply("(el) => el.innerText || el.textContent")
+            return str(res) if res else ""
+        except:
+            return self.text_all
+
+    async def to_markdown(self) -> str:
+        """Converts this specific element to markdown."""
+        from ...extractors.markdown import html_to_markdown
+        html = await self.get_html()
+        return html_to_markdown(html)
 
     def _make_attrs(self) -> None:
         sav = None

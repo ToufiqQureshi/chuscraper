@@ -212,43 +212,6 @@ class Tab(
         """Cleanup resources."""
         await self.close()
 
-    async def xpath(self, xpath: str) -> List[Element]:
-        """
-        Evaluate an XPath expression and return matching elements.
-
-        :param xpath: The XPath expression.
-        :return: A list of Element objects.
-        """
-        doc = await self.send(cdp.dom.get_document(-1, True))
-        search_id, result_count = await self.send(cdp.dom.perform_search(xpath, include_user_agent_shadow_dom=True))
-
-        if result_count == 0:
-            return []
-
-        node_ids = await self.send(cdp.dom.get_search_results(search_id, 0, result_count))
-        await self.send(cdp.dom.discard_search_results(search_id))
-
-        elements = []
-        for node_id in node_ids:
-            try:
-                node = util.filter_recurse(doc, lambda n: n.node_id == node_id)
-                if node:
-                    elements.append(element.create(node, self, doc))
-            except Exception:
-                pass
-
-        return elements
-
-
-
-
-
-
-
-
-
-
-
     async def close(self) -> None:
         """
         close the current target (ie: tab,window,page)
@@ -887,7 +850,7 @@ class Tab(
             extra = f"[url: {self.target.url}]"
         s = f"<{type(self).__name__} [{self.target_id}] [{self.type_}] {extra}>"
         return s
-    async def select_all(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> List[element.Element]:
+    async def scrape_all(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> List[element.Element]:
         """
         Uses Chuscraper's advanced Selector engine to find elements.
         Supports adaptive selectors if 'adaptive' is True.
@@ -909,9 +872,9 @@ class Tab(
                 elements.extend(found)
         return elements
 
-    async def select_one(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> Optional[element.Element]:
+    async def scrape_one(self, selector: str, adaptive: bool = False, identifier: str = "", auto_save: bool = True, percentage: int = 0) -> Optional[element.Element]:
         """Finds a single element using Chuscraper's engine."""
-        res = await self.select_all(selector, adaptive, identifier, auto_save, percentage)
+        res = await self.scrape_all(selector, adaptive, identifier, auto_save, percentage)
         return res[0] if res else None
 
     async def to_markdown(self, selector: Optional[str] = None, main_content_only: bool = False) -> str:
