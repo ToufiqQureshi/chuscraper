@@ -135,6 +135,11 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
     def stopped(self) -> bool:
         return not (self._process and self._process.poll() is None)
 
+    @property
+    def targets(self) -> list[Connection]:
+        """Returns all open targets/tabs."""
+        return self._targets
+
     async def wait(self, time: Union[float, int] = 1) -> Browser:
         """wait for <time> seconds."""
         return await asyncio.sleep(time, result=self)

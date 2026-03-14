@@ -208,8 +208,13 @@ class TargetManagerMixin(BrowserMixin):
                 )
                 if tab_obj:
                     break
-                await asyncio.sleep(0.01)
-                if loop.time() - start_time > self.config.browser_connection_timeout:
+
+                # Bug #3 Fallback: Explicitly poll if event-based discovery is slow
+                if loop.time() - start_time > 1.0:
+                    await self.update_targets()
+
+                await asyncio.sleep(0.1)
+                if loop.time() - start_time > self.config.browser_connection_timeout + 5.0:
                     raise asyncio.TimeoutError("Timeout waiting for new tab")
 
 
