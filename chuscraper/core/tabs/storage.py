@@ -14,38 +14,36 @@ class StorageMixin(TabMixin):
 
     async def set_cookie(self, name: str, value: str, **kwargs):
         """Sets a cookie."""
-        await self.send(self.cdp.network.set_cookie(name, value, **kwargs))
+        # Fix: match standard API and handle common missing params
+        if 'url' not in kwargs and self.tab.url:
+             kwargs['url'] = self.tab.url
+        await self.send(self.cdp.network.set_cookie(name=name, value=value, **kwargs))
 
     async def clear_cookies(self):
         """Clears all session cookies."""
         await self.send(self.cdp.network.clear_browser_cookies())
 
-    async def get_local_storage(self) -> Dict[str, str]:
-        """Returns localStorage items as dict."""
-        if self.tab.target is None or not self.tab.url:
-            await self.tab.wait()
-        
-        origin = "/".join(self.tab.url.split("/", 3)[:-1] if self.tab.url else [])
-        items = await self.send(self.cdp.dom_storage.get_dom_storage_items(
-            self.cdp.dom_storage.StorageId(is_local_storage=True, security_origin=origin)
-        ))
-        retval: Dict[str, str] = {}
-        for item in items:
-            retval[item[0]] = item[1]
-        return retval
+    async def get_local_storage(self, key: Optional[str] = None) -> Union[Dict[str, str], str, None]:
+        """Returns localStorage items via JS evaluation."""
+        try:
+            js = "JSON.stringify(localStorage)"
+            res = await self.tab.evaluate(js)
+            data = json.loads(res) if res else {}
+            if key: return data.get(key)
+            return data
+        except Exception as e:
+            logger.debug(f"get_local_storage failed: {e}")
+            return {}
 
-    async def set_local_storage(self, items: Dict[str, str]):
-        """Sets localStorage items."""
-        if self.tab.target is None or not self.tab.url:
-            await self.tab.wait()
-        
-        origin = "/".join(self.tab.url.split("/", 3)[:-1] if self.tab.url else [])
-        await asyncio.gather(*[
-            self.send(self.cdp.dom_storage.set_dom_storage_item(
-                storage_id=self.cdp.dom_storage.StorageId(is_local_storage=True, security_origin=origin),
-                key=str(key), value=str(val)
-            )) for key, val in items.items()
-        ])
+    async def set_local_storage(self, key: Union[str, Dict[str, str]], value: Optional[str] = None):
+        """Sets localStorage items via JS evaluation."""
+        items = key if isinstance(key, dict) else {key: value}
+        for k, v in items.items():
+            try:
+                js = f"localStorage.setItem({json.dumps(k)}, {json.dumps(v)})"
+                await self.tab.evaluate(js)
+            except Exception as e:
+                logger.debug(f"set_local_storage failed for {k}: {e}")
 
     async def set_user_agent(self, user_agent: Optional[str] = None, accept_language: Optional[str] = None, platform: Optional[str] = None):
         """Overrides user agent."""

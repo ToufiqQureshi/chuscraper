@@ -44,7 +44,7 @@ class ElementQueryMixin(ElementMixin):
         Uses Chuscraper's advanced Selector engine to find child elements.
         """
         # Get outer HTML of this element
-        html = await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+        html = await self._get_safe_outer_html()
         # Create adaptive selector for this sub-tree
         scr_sel = ChuSelector(html, url=self.tab.url, adaptive=adaptive)
         # Find elements
@@ -66,24 +66,14 @@ class ElementQueryMixin(ElementMixin):
 
     async def _get_safe_outer_html(self) -> str:
         """Helper to safely extract HTML even if NodeId drops from DevTools Agent tree"""
+        # Fix: Use JS to get full outerHTML if possible, as it includes children
         try:
-            return await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
-        except Exception:
-            # Fallback 1: Absolute worst-case scenario: we construct the HTML manually from our cached Element state
-            # since DevTools drops the active node mapping instantly after finding it on dynamic sites
-            node_name = self.node.node_name.lower()
-            if node_name == "#text":
-                return self.node.node_value or ""
-                
-            attrs_str = ""
-            if hasattr(self.node, 'attributes') and self.node.attributes:
-                attrs = dict(zip(self.node.attributes[0::2], self.node.attributes[1::2]))
-                for k, v in attrs.items():
-                    attrs_str += f' {k}="{v}"'
-            
-            # Since to_text/to_markdown are used for content extraction, giving it a synthetic wrapper
-            # allows our Parsers to succeed even if we lost the live DOM connection.
-            return f"<{node_name}{attrs_str}>{self.node.node_value or ''}</{node_name}>"
+            return await self.apply("(el) => el.outerHTML")
+        except:
+             try:
+                 return await self.tab.send(cdp.dom.get_outer_html(node_id=self.node.node_id))
+             except:
+                 return ""
 
     async def to_markdown(self) -> str:
         """Converts this element to Markdown."""

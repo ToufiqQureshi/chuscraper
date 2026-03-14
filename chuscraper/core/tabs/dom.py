@@ -162,99 +162,80 @@ class DomMixin(TabMixin):
     async def query_selector_all(
         self,
         selector: str,
-        _node: cdp.dom.Node | Element | None = None,
+        _node: Any | None = None,
     ) -> List[Element]:
         """
         Production Grade query_selector_all with multi-stage resolution.
         """
         items = []
         selector = selector.strip()
-        
-        # 1. XPath Shortcut
         is_xpath = selector.startswith("xpath:")
         clean_selector = selector[6:] if is_xpath else selector
+
+        # Resolve context node
+        context_node_id = None
+        context_remote_object_id = None
+        if _node:
+            context_node_id = getattr(_node, "node_id", None)
+            context_remote_object_id = getattr(_node, "object_id", None)
+
+        # 1. XPath Shortcut
         if is_xpath:
+            # TODO: implement relative xpath if _node is set
             return await self.xpath(clean_selector)
 
         # 2. Native CDP Attempt
         try:
             await self.send(cdp.dom.enable())
             doc = await self.send(cdp.dom.get_document(-1, True))
-            node_ids = await self.send(cdp.dom.query_selector_all(doc.node_id, clean_selector))
+            root_id = context_node_id or doc.node_id
+            node_ids = await self.send(cdp.dom.query_selector_all(root_id, clean_selector))
             if node_ids:
                 for nid in node_ids:
-                    node_info = await self.send(cdp.dom.describe_node(node_id=nid, depth=-1, pierce=True))
-                    if node_info:
+                    try:
+                        node_info = await self.send(cdp.dom.describe_node(node_id=nid, depth=-1, pierce=True))
                         elem = element.create(node_info, self.tab, doc)
                         if elem: items.append(elem)
+                    except: continue
                 if items: return items
         except Exception as e:
             logger.debug(f"query_selector_all Native failed for {selector}: {e}")
 
         # 3. JS-to-CDP Fallback
         try:
-            js_map_code = f"(function() {{ return document.querySelectorAll({json.dumps(clean_selector)}).length; }})()"
-            res, _ = await self.send(cdp.runtime.evaluate(js_map_code, return_by_value=True))
-            if res and res.value:
-                count = int(res.value)
-                if count > 0:
-                    doc = await self.send(cdp.dom.get_document(-1, True))
-                    for i in range(count):
-                        try:
-                            js_obj_code = f"document.querySelectorAll({json.dumps(clean_selector)})[{i}]"
-                            obj_res, _ = await self.send(cdp.runtime.evaluate(js_obj_code))
-                            if obj_res and obj_res.object_id:
-                                node_id = await self.send(cdp.dom.request_node(object_id=obj_res.object_id))
-                                node_info = await self.send(cdp.dom.describe_node(node_id=node_id, depth=-1, pierce=True))
-                                elem = element.create(node_info, self.tab, doc)
-                                if elem:
-                                    elem._remote_object = obj_res
-                                    items.append(elem)
-                        except: pass
+            if context_remote_object_id:
+                js_map_code = f"(function(el) {{ return el.querySelectorAll({json.dumps(clean_selector)}).length; }})"
+                res = await self.send(cdp.runtime.call_function_on(js_map_code, object_id=context_remote_object_id, return_by_value=True))
+                count = int(res[0].value) if res and res[0] else 0
+            else:
+                js_map_code = f"(function() {{ return document.querySelectorAll({json.dumps(clean_selector)}).length; }})()"
+                res, _ = await self.send(cdp.runtime.evaluate(js_map_code, return_by_value=True))
+                count = int(res.value) if res and res.value else 0
+
+            if count > 0:
+                doc = await self.send(cdp.dom.get_document(-1, True))
+                for i in range(count):
+                    try:
+                        if context_remote_object_id:
+                             js_obj_code = f"(el) => el.querySelectorAll({json.dumps(clean_selector)})[{i}]"
+                             obj_res = await self.send(cdp.runtime.call_function_on(js_obj_code, object_id=context_remote_object_id))
+                             obj_res = obj_res[0] if obj_res else None
+                        else:
+                             js_obj_code = f"document.querySelectorAll({json.dumps(clean_selector)})[{i}]"
+                             obj_res, _ = await self.send(cdp.runtime.evaluate(js_obj_code))
+
+                        if obj_res and obj_res.object_id:
+                            node_id = await self.send(cdp.dom.request_node(object_id=obj_res.object_id))
+                            node_info = await self.send(cdp.dom.describe_node(node_id=node_id, depth=-1, pierce=True))
+                            elem = element.create(node_info, self.tab, doc)
+                            if elem:
+                                elem._remote_object = obj_res
+                                items.append(elem)
+                    except: pass
                 if items: return items
         except Exception as e:
             logger.debug(f"query_selector_all JS-CDP failed for {selector}: {e}")
 
-        # 4. Synthetic Node Fallback (Last resort)
-        try:
-            js_meta_code = f"""
-            (function() {{
-                let els = document.querySelectorAll({json.dumps(clean_selector)});
-                let results = [];
-                for(let el of els) {{
-                    let attrs = [];
-                    if (el.attributes) {{ for (let attr of el.attributes) {{ attrs.push(attr.name); attrs.push(attr.value); }} }}
-                    results.push({{
-                        nodeName: el.tagName,
-                        nodeType: el.nodeType,
-                        attributes: attrs,
-                        textContent: el.textContent
-                    }});
-                }}
-                return results;
-            }})()
-            """
-            res, _ = await self.send(cdp.runtime.evaluate(js_meta_code, return_by_value=True))
-            if res and res.value:
-                doc = await self.send(cdp.dom.get_document(-1, True))
-                for idx, val in enumerate(res.value):
-                    synthetic_node = cdp.dom.Node(
-                        node_id=cdp.dom.NodeId(-1),
-                        backend_node_id=cdp.dom.BackendNodeId(-1),
-                        node_type=val.get("nodeType", 1),
-                        node_name=val.get("nodeName", ""),
-                        local_name=val.get("nodeName", "").lower(),
-                        node_value=val.get("textContent", ""),
-                        attributes=val.get("attributes", [])
-                    )
-                    elem = element.create(synthetic_node, self.tab, doc)
-                    if elem:
-                        setattr(elem, '_selector', clean_selector)
-                        setattr(elem, '_index', idx)
-                        items.append(elem)
-        except Exception as e:
-            logger.debug(f"query_selector_all synthetic fallback failed for {selector}: {e}")
-            
         return items
 
     async def query_selector(

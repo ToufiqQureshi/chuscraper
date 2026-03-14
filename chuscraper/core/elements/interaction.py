@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .base import ElementMixin
-from typing import TYPE_CHECKING, Literal, Any, Optional, Union, Tuple
+from typing import TYPE_CHECKING, Literal, Any, Optional, Union, Tuple, List
 import asyncio
 import json
 import logging
@@ -121,7 +121,7 @@ class ElementInteractionMixin(ElementMixin):
                 return f"(el) => {{ const element=el, e=el; return ({code})(el); }}"
             return code
 
-        # Logic 1: Use synthetic JS path if node is synthetic OR if CDP path fails
+        # Path 1: Synthetic or Force JS
         async def try_js_path():
             if not fcode: return None, False
             func = wrap_js(js)
@@ -138,7 +138,7 @@ class ElementInteractionMixin(ElementMixin):
             if retry: return await self.apply(js, return_by_value, await_promise, False)
             raise ProtocolException("JS fallback failed for synthetic node")
 
-        # Logic 2: Standard CDP Path
+        # Path 2: Standard CDP
         if not self.remote_object:
             try: self._remote_object = await self.tab.send(cdp.dom.resolve_node(backend_node_id=bid))
             except: pass
@@ -152,14 +152,13 @@ class ElementInteractionMixin(ElementMixin):
             res = await self.tab.send(cdp.runtime.call_function_on(js, object_id=self.remote_object.object_id, arguments=[cdp.runtime.CallArgument(object_id=self.remote_object.object_id)], return_by_value=return_by_value, user_gesture=True, await_promise=await_promise))
             if res:
                 if len(res) > 0 and res[0]: return res[0].value if return_by_value else res[0]
-                return None # undefined
+                return None
         except Exception as e:
             if retry and (("-32000" in str(e)) or ("id" in str(e))):
                 logger.debug(f"Object expired for {self.node_name}, re-resolving...")
                 await self.update()
                 return await self.apply(js, return_by_value, await_promise, False)
 
-            # Final fallback to JS path if CDP fails with non-expiration error
             val, ok = await try_js_path()
             if ok: return val
             raise e
@@ -200,10 +199,31 @@ class ElementInteractionMixin(ElementMixin):
                 return await self.get_position(abs, False)
             return None
 
+    async def type(self, text: str, delay: float = 0.0, retry: bool = True) -> None:
+        await self.apply("(el) => el.focus()", retry=retry)
+        for char in text:
+            await self.send_keys(char, retry=retry)
+            if delay > 0: await asyncio.sleep(delay)
+
     async def fill(self, text: str, retry: bool = True) -> None:
         await self.apply("(el) => el.focus()", retry=retry)
         await self.apply('function(e){ e.value = "" }', retry=retry)
-        for c in text: await self.tab.send(cdp.input_.dispatch_key_event(**KeyEvents.from_text(c, KeyPressEvent.CHAR)[0]))
+        await self.send_keys(text, retry=retry)
+
+    async def send_keys(self, text: Union[str, SpecialKeys, List[KeyEvents.Payload]], retry: bool = True) -> None:
+        await self.apply("(el) => el.focus()", retry=retry)
+        if isinstance(text, str): cluster_list = KeyEvents.from_text(text, KeyPressEvent.CHAR)
+        elif isinstance(text, SpecialKeys): cluster_list = KeyEvents(text).to_cdp_events(KeyPressEvent.DOWN_AND_UP)
+        else: cluster_list = text
+        for cluster in cluster_list: await self.tab.send(cdp.input_.dispatch_key_event(**cluster))
+
+    async def hover(self) -> None: await self.mouse_move()
+
+    async def mouse_move(self) -> None:
+        pos = await self.get_position()
+        if not pos: return
+        cx, cy = pos.center
+        await self.tab.send(cdp.input_.dispatch_mouse_event("mouseMoved", x=cx, y=cy))
 
     async def scroll_into_view(self) -> None:
         bid = int(self.backend_node_id)
@@ -227,3 +247,20 @@ class ElementInteractionMixin(ElementMixin):
         if self.tree and bid > 0:
             node = util.filter_recurse(self.tree, lambda n: n.backend_node_id == bid)
             if node: await self.tab.send(cdp.dom.remove_node(node.node_id))
+
+    async def clear_input(self, retry: bool = True) -> None: await self.apply('function(e){e.value=""}', retry=retry)
+    async def send_file(self, *file_paths: PathLike, retry: bool = True) -> None:
+        try: await self.tab.send(cdp.dom.set_file_input_files(files=[str(p) for p in file_paths], backend_node_id=self.backend_node_id, object_id=self.object_id))
+        except Exception as e:
+            if retry and (("-32000" in str(e)) or ("id" in str(e))):
+                await self.update()
+                return await self.send_file(*file_paths, retry=False)
+            raise e
+    async def select_option(self) -> None:
+        if self.node_name == "OPTION": await self.apply("(o)=>{o.selected=true;o.dispatchEvent(new Event('change',{bubbles:true}))}")
+    async def set_value(self, value: str) -> None: await self.tab.send(cdp.dom.set_node_value(node_id=self.node_id, value=value))
+    async def set_text(self, value: str) -> None:
+        if self.node_type == 3: await self.tab.send(cdp.dom.set_node_value(node_id=self.node_id, value=value))
+        elif self.child_node_count == 1: await self.children[0].set_text(value)
+        else: raise RuntimeError("Can only set text on text nodes or single-child elements")
+        await self.update()

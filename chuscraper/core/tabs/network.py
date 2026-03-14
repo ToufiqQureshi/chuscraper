@@ -8,7 +8,9 @@ if TYPE_CHECKING:
 class NetworkMixin(TabMixin):
     async def set_extra_headers(self, headers: Dict[str, str]):
         """Sets extra HTTP headers for all requests."""
-        await self.send(self.cdp.network.set_extra_http_headers(headers))
+        # Use cdp types explicitly
+        from ...cdp.network import Headers
+        await self.send(self.cdp.network.set_extra_http_headers(Headers(headers)))
 
     async def enable_interception(self, patterns: List[Dict]):
         """Enables request interception with given patterns."""
@@ -51,4 +53,10 @@ class NetworkMixin(TabMixin):
 
     async def get_performance_metrics(self):
         """Returns browser performance metrics."""
-        return await self.send(self.cdp.performance.get_metrics())
+        # Fix: handle missing binding if domain isn't enabled
+        try:
+            return await self.send(self.cdp.performance.get_metrics())
+        except AttributeError:
+            # Fallback if domain binding missing from CDP generator
+            res = await self.send({"method": "Performance.getMetrics", "params": {}})
+            return res.get("metrics", [])

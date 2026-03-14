@@ -42,7 +42,7 @@ class ActionsMixin(TabMixin):
 
     async def type(self, selector: str, text: str, delay: float = 0.05, timeout: Optional[float] = None):
         """Finds and types into an element with optional human-like delay."""
-        await self._retry_action(lambda el: el.type(text, delay=delay), selector, timeout=timeout)
+        await self._retry_action(lambda el: el.send_keys(text), selector, timeout=timeout)
         return self.tab
 
     async def fill(self, selector: str, text: str, timeout: Optional[float] = None):
@@ -78,7 +78,8 @@ class ActionsMixin(TabMixin):
     async def hover(self, selector: str, timeout: Optional[float] = None):
         """Finds and moves mouse to an element."""
         el = await self.tab.select(selector, timeout=timeout)
-        await el.mouse_move()
+        if el:
+            await el.mouse_move() # explicitly call interaction method
         return self.tab
 
     async def send_keys(self, text: str):

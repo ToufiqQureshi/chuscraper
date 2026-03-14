@@ -203,44 +203,21 @@ class Tab(
 
 
 
-    async def close(self):
-        """Closes the tab/target."""
-        if self.browser:
-            await self.send(cdp.target.close_target(self.target_id))
+    async def close(self) -> None:
+        """
+        Closes the current target (tab/page).
+        """
+        if self.target_id:
+            try:
+                # We use a wrapper to avoid CancelledError during rapid tab closing
+                # and ensure we don't wait forever if the browser is closing
+                await self.send(cdp.target.close_target(self.target_id))
+            except (asyncio.CancelledError, Exception) as e:
+                logger.debug(f"Target {self.target_id} closure note: {e}")
 
     async def stop(self):
         """Cleanup resources."""
         await self.close()
-
-    async def close(self) -> None:
-        """
-        close the current target (ie: tab,window,page)
-        :return:
-        :rtype:
-        :raises asyncio.TimeoutError:
-        :raises RuntimeError:
-        """
-
-        if not self.browser or not self.browser.connection:
-            raise RuntimeError("Browser not yet started. use await browser.start()")
-
-        future = asyncio.get_running_loop().create_future()
-        event_type = cdp.target.TargetDestroyed
-
-        async def close_handler(event: cdp.target.TargetDestroyed) -> None:
-            if future.done():
-                return
-
-            if self.target and event.target_id == self.target.target_id:
-                future.set_result(event)
-
-        self.browser.connection.add_handler(event_type, close_handler)
-
-        if self.target and self.target.target_id:
-            await self.send(cdp.target.close_target(target_id=self.target.target_id))
-
-        await asyncio.wait_for(future, 10)
-        self.browser.connection.remove_handlers(event_type, close_handler)
 
     async def get_window(self) -> Tuple[cdp.browser.WindowID, cdp.browser.Bounds]:
         """
@@ -324,45 +301,30 @@ class Tab(
     ) -> None:
         """
         sets the window size or state.
-
-        for state you can provide the full name like minimized, maximized, normal, fullscreen, or
-        something which leads to either of those, like min, mini, mi,  max, ma, maxi, full, fu, no, nor
-        in case state is set other than "normal", the left, top, width, and height are ignored.
-
-        :param left: desired offset from left, in pixels
-        :param top: desired offset from the top, in pixels
-        :param width: desired width in pixels
-        :param height: desired height in pixels
-        :param state:
-            can be one of the following strings:
-                - normal
-                - fullscreen
-                - maximized
-                - minimized
         """
         available_states = ["minimized", "maximized", "fullscreen", "normal"]
         window_id: cdp.browser.WindowID
-        bounds: cdp.browser.Bounds
-        (window_id, bounds) = await self.get_window()
+        bounds_info: cdp.browser.Bounds
+        (window_id, bounds_info) = await self.get_window()
 
+        target_state_name = "normal"
         for state_name in available_states:
-            if all(x in state_name for x in state.lower()):
+            if state.lower() in state_name:
+                target_state_name = state_name
                 break
-        else:
-            raise NameError(
-                "could not determine any of %s from input '%s'"
-                % (",".join(available_states), state)
-            )
+
         window_state = getattr(
-            cdp.browser.WindowState, state_name.upper(), cdp.browser.WindowState.NORMAL
+            cdp.browser.WindowState, target_state_name.upper(), cdp.browser.WindowState.NORMAL
         )
-        if window_state == cdp.browser.WindowState.NORMAL:
-            bounds = cdp.browser.Bounds(left, top, width, height, window_state)
-        else:
-            # min, max, full can only be used when current state == NORMAL
-            # therefore we first switch to NORMAL
-            await self.set_window_state(state="normal")
+
+        if window_state != cdp.browser.WindowState.NORMAL:
+            # First ensure we are in NORMAL state if we want to go to special state
+            if bounds_info.window_state != cdp.browser.WindowState.NORMAL:
+                await self.send(cdp.browser.set_window_bounds(window_id, bounds=cdp.browser.Bounds(window_state=cdp.browser.WindowState.NORMAL)))
+
             bounds = cdp.browser.Bounds(window_state=window_state)
+        else:
+            bounds = cdp.browser.Bounds(left, top, width, height, window_state)
 
         await self.send(cdp.browser.set_window_bounds(window_id, bounds=bounds))
 
@@ -701,26 +663,22 @@ class Tab(
         path.write_bytes(data_bytes)
         return str(path)
 
-    async def print_to_pdf(self, filename: PathLike, **kwargs: Any) -> pathlib.Path:
+    async def print_to_pdf(self, filename: Optional[PathLike] = None, **kwargs: Any) -> Union[pathlib.Path, bytes]:
         """
-        Prints the current page to a PDF file and saves it to the specified path.
-
-        :param filename: The path where the PDF will be saved.
-        :param kwargs: Additional options for printing to be passed to :py:obj:`cdp.page.print_to_pdf`.
-        :return: The path to the saved PDF file.
-        :rtype: pathlib.Path
+        Prints the current page to a PDF. If filename is provided, saves it.
+        Otherwise returns the raw bytes.
         """
-        filename = pathlib.Path(filename)
-        if filename.is_dir():
-            raise ValueError(
-                f"filename {filename} must be a file path, not a directory"
-            )
-
         data, _ = await self.send(cdp.page.print_to_pdf(**kwargs))
-
         data_bytes = base64.b64decode(data)
-        filename.write_bytes(data_bytes)
-        return filename
+
+        if filename:
+            filename = pathlib.Path(filename)
+            if filename.is_dir():
+                raise ValueError(f"filename {filename} must be a file path, not a directory")
+            filename.write_bytes(data_bytes)
+            return filename
+
+        return data_bytes
 
     async def set_download_path(self, path: PathLike) -> None:
         """

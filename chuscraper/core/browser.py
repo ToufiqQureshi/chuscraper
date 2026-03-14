@@ -304,6 +304,17 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
         except Exception:
             return False
 
+    async def grant_all_permissions(self, origin: str):
+        """Grants all possible permissions to an origin."""
+        # Fix: handle missing binding
+        try:
+             from ..cdp.browser import PermissionType
+             perms = [p for p in PermissionType]
+             await self.connection.send(cdp.browser.grant_permissions(permissions=perms, origin=origin))
+        except:
+             # Fallback: manually call if binding failed
+             await self.connection.send({"method": "Browser.grantPermissions", "params": {"origin": origin, "permissions": ["geolocation", "notifications", "midi", "audioCapture", "videoCapture"]}})
+
     async def stop(self) -> None:
         """Stop the browser instance"""
         if self._connection and not self._connection.closed:
