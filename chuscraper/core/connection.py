@@ -21,6 +21,7 @@ from typing import (
 )
 
 import websockets.asyncio.client
+import websockets.exceptions
 
 from .. import cdp
 from . import util
@@ -80,14 +81,17 @@ class Connection:
         self.__dict__.update(**kwargs)
 
     @property
-    def target_id(self) -> Optional[str]:
-        if self.target and hasattr(self.target, 'target_id'):
-            return str(self.target.target_id)
+    def target_id(self) -> Optional[cdp.target.TargetID]:
+        if self.target and hasattr(self.target, "target_id"):
+            tid = self.target.target_id
+            if tid is not None and not hasattr(tid, "to_json"):
+                return cdp.target.TargetID(str(tid))
+            return tid
         return None
 
     @property
     def type_(self) -> Optional[str]:
-        if self.target and hasattr(self.target, 'type_'):
+        if self.target and hasattr(self.target, "type_"):
             return str(self.target.type_)
         return None
 
@@ -96,11 +100,9 @@ class Connection:
         """Robust check for connection state."""
         if not self.websocket:
             return True
-        # Check if the connection is closed
         try:
             return self.websocket.closed
         except AttributeError:
-            # Fallback for older websockets versions or different interfaces
             return not getattr(self.websocket, "open", False)
 
     async def connect(self):
@@ -113,51 +115,57 @@ class Connection:
         self._connecting = True
         self._connected.clear()
 
+        # Shutdown old connection properly
         if self.websocket:
             ws = self.websocket
             self.websocket = None
+            if self.recv_task and not self.recv_task.done():
+                self.recv_task.cancel()
             try:
-                 # Forcefully close to free the file descriptor
-                 await asyncio.wait_for(ws.close(), timeout=1.0)
-            except: pass
+                await asyncio.wait_for(ws.close(), timeout=2.0)
+            except:
+                pass
+
         try:
+            # Production Stability: Heartbeats to keep connection alive
             self.websocket = await websockets.asyncio.client.connect(
                 self.websocket_url,
                 max_size=2**28,
-                close_timeout=1.0
+                close_timeout=2.0,
+                ping_interval=20,
+                ping_timeout=20,
             )
             self._connected.set()
-            if self.recv_task and not self.recv_task.done():
-                self.recv_task.cancel()
             self.recv_task = asyncio.create_task(self._recv_loop())
         except Exception as e:
-            logger.error(f"Failed to connect to {self.websocket_url}: {e}")
-            self._connected.set() # Release waiters even on failure
+            logger.debug(f"Failed to connect to {self.websocket_url}: {e}")
+            self._connected.set()
             raise
         finally:
             self._connecting = False
 
     async def _recv_loop(self):
+        ws = self.websocket
+        if not ws:
+            return
         try:
-            async for message in self.websocket:
-                # Handle both text and bytes (though CDP is usually text/JSON)
+            async for message in ws:
                 if isinstance(message, bytes):
                     message = message.decode("utf-8")
                 await self._handle_message(str(message))
         except Exception as e:
-            logger.debug(f"Connection loop terminated: {e}")
+            logger.debug(f"Connection loop terminated for {self.target_id}: {e}")
         finally:
-            self.websocket = None
-            self._connected.clear()
+            if self.websocket == ws:
+                self.websocket = None
+                self._connected.clear()
 
     async def _handle_message(self, message: str):
         try:
             data = json.loads(message)
         except json.JSONDecodeError:
-            logger.warning(f"Received invalid JSON: {message}")
             return
 
-        # Handle Responses (IDs)
         if "id" in data:
             tx_id = data["id"]
             if tx_id in self.mapper:
@@ -167,49 +175,44 @@ class Connection:
                         tx.future.set_exception(ProtocolException(data["error"]))
                     else:
                         tx.future.set_result(data.get("result", {}))
-                # Clean up finished transaction
                 del self.mapper[tx_id]
 
-        # Handle Events (Methods)
         elif "method" in data:
             method = data["method"]
             params = data.get("params", {})
+            event_type = cdp.util._event_parsers.get(method)
 
-            # Find the CDP event class for this method
-            # This relies on cdp.util._event_parsers.get or manual lookup
-            event_type = None
-
-            # 1. Try cdp utility map if available (it might be sparse in some versions)
-            event_class = cdp.util._event_parsers.get(method)
-            if event_class:
-                event_type = event_class
-            else:
-                # 2. Heuristic lookup: "Network.requestWillBeSent" -> cdp.network.RequestWillBeSent
+            if not event_type:
                 try:
                     if "." in method:
                         domain_name, event_name = method.split(".", 1)
                         domain_module = getattr(cdp, domain_name.lower(), None)
                         if domain_module:
-                            # Normalize event name (e.g. requestWillBeSent -> RequestWillBeSent)
-                            # But python classes are typically PascalCase
-                            # We search for case-insensitive match
                             target_name = event_name.lower().replace("_", "")
                             for name, obj in inspect.getmembers(domain_module):
-                                if inspect.isclass(obj) and name.lower() == target_name:
+                                if (
+                                    inspect.isclass(obj)
+                                    and name.lower() == target_name
+                                ):
                                     event_type = obj
                                     break
                 except Exception:
                     pass
 
-            # Fire handlers
             if event_type:
-                # Parse the event
+                event_obj = None
                 try:
-                    event_obj = event_type.from_json(params)
+                    if hasattr(event_type, "from_json"):
+                        event_obj = event_type.from_json(params)
                 except Exception:
+                    pass
+
+                if event_obj is None:
                     event_obj = params
 
-                handlers = self.handlers.get(event_type, [])
+                handlers = self.handlers.get(event_type, []) + self.handlers.get(
+                    method, []
+                )
                 for handler in handlers:
                     try:
                         if inspect.iscoroutinefunction(handler):
@@ -217,40 +220,80 @@ class Connection:
                         else:
                             handler(event_obj)
                     except Exception as e:
-                        logger.error(f"Error in event handler for {method}: {e}")
-
-            # Also fire generic handlers for the module/domain if registered?
-            # (Skipped for now to match original behavior logic)
+                        logger.debug(f"Error in event handler for {method}: {e}")
 
     async def send(self, command: Any, session_id: str = None, **kwargs: Any) -> Any:
-        if self.closed:
-            await self.connect()
-
-        # Handle Generator-based commands (cdp module pattern)
-        if inspect.isgenerator(command):
+        # 1. Standardize command data for retries
+        is_gen = inspect.isgenerator(command)
+        if is_gen:
             try:
                 cmd_data = next(command)
+                method = cmd_data.get("method")
+                params = cmd_data.get("params", {})
             except StopIteration:
                 return None
-            method = cmd_data.get("method")
-            params = cmd_data.get("params", {})
         else:
-            # Handle direct dict or object commands
             method = getattr(command, "method", None)
             if not method and isinstance(command, dict):
-                 method = command.get("method")
-                 params = command.get("params", {})
+                method = command.get("method")
+                params = command.get("params", {})
             else:
-                 params = getattr(command, "params", {}) if hasattr(command, "params") else {}
+                params = (
+                    getattr(command, "params", {})
+                    if hasattr(command, "params")
+                    else {}
+                )
 
         if not method:
-             raise ValueError(f"Could not determine method from command: {command}")
+            raise ValueError(f"Could not determine method from command: {command}")
 
+        # 2. Execute with Production Grade recovery
+        max_retries = 3
+        result = None
+        for attempt in range(max_retries):
+            try:
+                if self.closed:
+                    await self.connect()
+
+                result = await self._raw_send(method, params, session_id)
+                break # Success
+            except (ConnectionError, websockets.exceptions.ConnectionClosed, OSError) as e:
+                is_win_error_64 = False
+                if sys.platform == "win32" and isinstance(e, OSError) and getattr(e, "winerror", 0) == 64:
+                    is_win_error_64 = True
+
+                if attempt < max_retries - 1 and (is_win_error_64 or isinstance(e, (ConnectionError, websockets.exceptions.ConnectionClosed))):
+                    logger.debug(f"Connection lost (Win64: {is_win_error_64}), retrying... {attempt+1}")
+                    await self.connect()
+                    continue
+                raise
+            except ProtocolException as e:
+                # DOM Agent recovery
+                if e.code == -32000 and "DOM agent is not enabled" in e.message and attempt < max_retries - 1:
+                    logger.debug("Auto-enabling DOM agent...")
+                    try: await self._raw_send("DOM.enable", {}, session_id)
+                    except: pass
+                    continue
+                raise
+
+        # 3. Finalize generator if needed
+        if is_gen:
+            try:
+                command.send(result)
+            except StopIteration as e:
+                return e.value
+        return result
+
+    async def _raw_send(self, method: str, params: dict, session_id: str = None) -> Any:
         final_method = method
         final_params = params
 
         if session_id:
-            final_params = {"sessionId": session_id, "method": method, "params": params}
+            final_params = {
+                "sessionId": session_id,
+                "method": method,
+                "params": params,
+            }
             final_method = "Target.sendMessageToTarget"
 
         tx_id = next(self._count)
@@ -262,50 +305,31 @@ class Connection:
         try:
             await self.websocket.send(json.dumps(payload))
         except Exception:
-             raise
+            raise
 
-        # Wait for response
         try:
-            result = await tx.future
-            # If it was a generator, feed the result back (CDP pattern)
-            if inspect.isgenerator(command):
-                try:
-                    command.send(result)
-                except StopIteration as e:
-                    return e.value
-            return result
-        except Exception as e:
-            raise e
+            return await tx.future
+        except Exception:
+            raise
 
     async def stop(self):
         if self.recv_task:
             self.recv_task.cancel()
-            try:
-                await self.recv_task
-            except asyncio.CancelledError:
-                pass
-
         if self.websocket:
-            await self.websocket.close()
+            try: await self.websocket.close()
+            except: pass
             self.websocket = None
 
     close = stop
     aclose = stop
 
     def add_handler(self, event_type: Any, handler: Callable):
-        """
-        Register a handler for a specific CDP event type.
-        """
         if handler not in self.handlers[event_type]:
             self.handlers[event_type].append(handler)
 
-    def remove_handlers(self, event_type: Optional[Any] = None, handler: Optional[Callable] = None):
-        """
-        Remove handlers.
-        If event_type is provided, removes handlers for that type.
-        If handler is provided, removes that specific handler.
-        If both, removes that handler from that type.
-        """
+    def remove_handlers(
+        self, event_type: Optional[Any] = None, handler: Optional[Callable] = None
+    ):
         if event_type:
             if handler:
                 if handler in self.handlers[event_type]:
@@ -313,10 +337,8 @@ class Connection:
             else:
                 del self.handlers[event_type]
         elif handler:
-            # Remove this handler from ALL events
             for et in list(self.handlers.keys()):
                 if handler in self.handlers[et]:
                     self.handlers[et].remove(handler)
         else:
-            # Clear all
             self.handlers.clear()

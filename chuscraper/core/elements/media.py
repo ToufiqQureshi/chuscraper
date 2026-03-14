@@ -153,23 +153,28 @@ class ElementMediaMixin(ElementMixin):
         )
 
     async def highlight_overlay(self) -> None:
-        if getattr(self, "_is_highlighted", False):
-            del self._is_highlighted
-            await self.tab.send(cdp.overlay.hide_highlight())
-            await self.tab.send(cdp.dom.disable())
-            await self.tab.send(cdp.overlay.disable())
-            return
-        await self.tab.send(cdp.dom.enable())
-        await self.tab.send(cdp.overlay.enable())
-        conf = cdp.overlay.HighlightConfig(
-            show_info=True, show_extension_lines=True, show_styles=True
-        )
-        await self.tab.send(
-            cdp.overlay.highlight_node(
-                highlight_config=conf, backend_node_id=self.backend_node_id
+        # Fix: handle missing overlay domain in CDP generator
+        try:
+            if getattr(self, "_is_highlighted", False):
+                del self._is_highlighted
+                await self.tab.send(cdp.overlay.hide_highlight())
+                await self.tab.send(cdp.dom.disable())
+                await self.tab.send(cdp.overlay.disable())
+                return
+            await self.tab.send(cdp.dom.enable())
+            await self.tab.send(cdp.overlay.enable())
+            conf = cdp.overlay.HighlightConfig(
+                show_info=True, show_extension_lines=True, show_styles=True
             )
-        )
-        setattr(self, "_is_highlighted", 1)
+            await self.tab.send(
+                cdp.overlay.highlight_node(
+                    highlight_config=conf, backend_node_id=self.backend_node_id
+                )
+            )
+            setattr(self, "_is_highlighted", 1)
+        except AttributeError:
+            # Fallback JS for highlighting
+            await self.apply("(el) => { el.style.outline = '3px solid red'; el.style.backgroundColor = 'rgba(255,0,0,0.2)'; }")
 
     async def record_video(
         self,

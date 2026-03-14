@@ -208,8 +208,13 @@ class TargetManagerMixin(BrowserMixin):
                 )
                 if tab_obj:
                     break
-                await asyncio.sleep(0.01)
-                if loop.time() - start_time > self.config.browser_connection_timeout:
+
+                # Bug #3 Fallback: Explicitly poll if event-based discovery is slow
+                if loop.time() - start_time > 1.0:
+                    await self.update_targets()
+
+                await asyncio.sleep(0.1)
+                if loop.time() - start_time > self.config.browser_connection_timeout + 5.0:
                     raise asyncio.TimeoutError("Timeout waiting for new tab")
 
 
@@ -230,20 +235,24 @@ class TargetManagerMixin(BrowserMixin):
 
     async def scrape(self, selector: str, timeout: typing.Union[int, float] = 10):
         """Shortcut for browser.main_tab.select(selector)."""
-        return await self.main_tab.select(selector, timeout=timeout)  # type: ignore
+        if not self.main_tab: return None
+        return await self.main_tab.select(selector, timeout=timeout)
 
     async def tile_windows(
         self, windows: typing.List[Tab] | None = None, max_columns: int = 0
     ) -> typing.List[typing.List[int]]:
         import math
-        import mss
+        try:
+             import mss
+             m = mss.mss()
+             screen_width, screen_height = None, None
+             if m.monitors and len(m.monitors) >= 1:
+                 screen = m.monitors[0]
+                 screen_width = screen["width"]
+                 screen_height = screen["height"]
+        except:
+             screen_width, screen_height = 1920, 1080
 
-        m = mss.mss()
-        screen_width, screen_height = None, None
-        if m.monitors and len(m.monitors) >= 1:
-            screen = m.monitors[0]
-            screen_width = screen["width"]
-            screen_height = screen["height"]
         if not screen_width or not screen_height:
             import warnings
             warnings.warn("no monitors detected")
@@ -254,8 +263,10 @@ class TargetManagerMixin(BrowserMixin):
 
         tabs = windows if windows else self.tabs
         for tab_ in tabs:
-            window_id, bounds = await tab_.get_window()
-            distinct_windows[window_id].append(tab_)
+            try:
+                window_id, bounds = await tab_.get_window()
+                distinct_windows[window_id].append(tab_)
+            except: continue
 
         num_windows = len(distinct_windows)
         req_cols = max_columns or int(num_windows * (19 / 6))

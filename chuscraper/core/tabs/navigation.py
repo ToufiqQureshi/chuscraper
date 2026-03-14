@@ -1,7 +1,11 @@
 from __future__ import annotations
+import asyncio
+import logging
 from typing import TYPE_CHECKING, Any, Optional
 from ... import cdp
 from .base import TabMixin
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from chuscraper.core.tab import Tab
@@ -16,10 +20,6 @@ class NavigationMixin(TabMixin):
     ) -> Tab:
         """
         Main navigation method.
-        :param url: URL to navigate to.
-        :param new_tab: Whether to open in a new tab.
-        :param new_window: Whether to open in a new window.
-        :param timeout: Time to wait for initial load (seconds)
         """
         if not self.browser:
             raise AttributeError("Tab has no browser, cannot use get()")
@@ -27,14 +27,54 @@ class NavigationMixin(TabMixin):
         if new_window or new_tab:
             return await self.browser.get(url, new_tab=new_tab, new_window=new_window)
 
+        # Ensure DOM agent is active before navigation
+        try: await self.send(cdp.dom.enable())
+        except: pass
+
         await self.send(cdp.page.navigate(url))
-        try:
-            # wait for idle state (production hardening)
-            # using a shorter timeout for the initial get wait to prevent hangs
-            # self.wait comes from WaitMixin
-            await self.wait(timeout)
-        except:
-            pass
+
+        # Stability Fix: Handle about:blank race condition and wait for readyState transition
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+
+        # 1. Wait for URL to actually start changing or match target
+        while loop.time() - start_time < timeout:
+            try:
+                current_url = await self.tab.evaluate("window.location.href")
+                normalized_current = (current_url or "").lower().strip("/")
+                normalized_target = url.lower().strip("/")
+
+                # Check if we are at the target OR at least moved away from about:blank
+                if normalized_target in ("about:blank", ""):
+                    if normalized_current in ("about:blank", ""):
+                         if self.tab.target: self.tab.target.url = "about:blank"
+                         break
+                elif normalized_current == normalized_target or (normalized_current != "about:blank" and normalized_current != ""):
+                    if self.tab.target:
+                            self.tab.target.url = current_url or url
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.2)
+
+        # 2. Wait for readyState to move past 'loading'
+        # Production Hardening: Check for modern single-page apps (SPAs)
+        # that might stay in 'interactive' for a long time.
+        while loop.time() - start_time < timeout:
+            try:
+                state = await self.tab.evaluate("document.readyState")
+                if state in ("interactive", "complete"):
+                    # For extra stability, check if body is present
+                    has_body = await self.tab.evaluate("!!document.body")
+                    if has_body:
+                        break
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+        # 3. Final small sleep to let layout settle
+        await asyncio.sleep(0.3)
+
         return self.tab
 
     async def goto(self, url: str, **kwargs: Any) -> Tab:

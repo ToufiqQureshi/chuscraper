@@ -126,7 +126,8 @@ async def start(
         s_opts = kwargs.get("stealth_options", {})
         profile = SystemProfile.from_system(cookie_domain=stealth_domain, stealth_options=s_opts)
         tab = browser.main_tab
-        await profile.apply(tab, load_cookies=bool(stealth_domain))
+        if tab:
+            await profile.apply(tab, load_cookies=bool(stealth_domain))
         # Attach profile to browser for later use (e.g., save_cookies)
         browser._stealth_profile = profile
 
@@ -136,7 +137,8 @@ async def start(
             tz = timezone or await get_timezone_from_ip(proxy=proxy)
             if tz:
                 for tab in browser.tabs:
-                    await tab.send(cdp.emulation.set_timezone_override(timezone_id=tz))
+                    try: await tab.send(cdp.emulation.set_timezone_override(timezone_id=tz))
+                    except: pass
         except Exception as e:
             logger.debug(f"Failed to apply timezone: {e}")
 

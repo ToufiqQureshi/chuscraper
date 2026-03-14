@@ -135,6 +135,11 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
     def stopped(self) -> bool:
         return not (self._process and self._process.poll() is None)
 
+    @property
+    def targets(self) -> list[Connection]:
+        """Returns all open targets/tabs."""
+        return self._targets
+
     async def wait(self, time: Union[float, int] = 1) -> Browser:
         """wait for <time> seconds."""
         return await asyncio.sleep(time, result=self)
@@ -298,6 +303,17 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             return True
         except Exception:
             return False
+
+    async def grant_all_permissions(self, origin: str):
+        """Grants all possible permissions to an origin."""
+        # Fix: handle missing binding
+        try:
+             from ..cdp.browser import PermissionType
+             perms = [p for p in PermissionType]
+             await self.connection.send(cdp.browser.grant_permissions(permissions=perms, origin=origin))
+        except:
+             # Fallback: manually call if binding failed
+             await self.connection.send({"method": "Browser.grantPermissions", "params": {"origin": origin, "permissions": ["geolocation", "notifications", "midi", "audioCapture", "videoCapture"]}})
 
     async def stop(self) -> None:
         """Stop the browser instance"""
