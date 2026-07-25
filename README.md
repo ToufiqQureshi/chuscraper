@@ -101,7 +101,7 @@ pip install chuscraper
 
 ```python
 import asyncio
-import chuscraper as zd
+import chuscraper as cs
 
 async def main():
     # 1. Launch with all-in-one start() helper
