@@ -100,3 +100,7 @@ venv.bak/
 
 # Pycharm
 /.idea
+
+# graphify
+graphify-out/cost.json
+graphify-out/cache/
