@@ -22,7 +22,6 @@ dependencies = [
     "asyncio-atexit>=1.0.1",
     "deprecated>=1.2.14",
     "emoji>=2.14.1",
-    "grapheme>=0.6.0",
     "mss>=9.0.2",
     "websockets>=14.0",
     "pydantic>=2.0.0",
@@ -41,6 +40,14 @@ dependencies = [
     "w3lib>=2.1.2",
     "typing-extensions>=4.0.0",
 ]
+
+[project.optional-dependencies]
+# `grapheme` ships as a 2020 sdist whose setup.py fails to build on modern
+# setuptools, which made `pip install chuscraper` fail outright on some
+# environments. chuscraper falls back to a built-in cluster splitter without it,
+# so it is optional: install with `pip install chuscraper[grapheme]` for full
+# Unicode grapheme-cluster segmentation when typing.
+grapheme = ["grapheme>=0.6.0"]
 
 [project.urls]
 Homepage = "https://github.com/ToufiqQureshi/chuscraper"

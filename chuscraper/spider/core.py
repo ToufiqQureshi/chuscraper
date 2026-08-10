@@ -1,9 +1,10 @@
 import asyncio
+import inspect
 import logging
 import json
 import csv
-from typing import List, Dict, Optional, Set, Callable, Any, Literal, Awaitable, Union
-from urllib.parse import urlparse, urljoin, urldefrag
+from typing import List, Dict, Optional, Set, Callable, Any, Literal, Awaitable
+from urllib.parse import urlparse, urldefrag
 from chuscraper.core.tab import Tab
 from chuscraper.core.browser import Browser
 
@@ -35,6 +36,9 @@ class Crawler:
     - AI Extraction (LLM)
     """
 
+    #: how deep nested <sitemapindex> chains are followed before giving up
+    MAX_SITEMAP_DEPTH = 5
+
     def __init__(
         self,
         start_urls: List[str] | str | None = None,
@@ -42,11 +46,12 @@ class Crawler:
         max_pages: int = 10,
         max_depth: int = 2,
         concurrency: int = 2,
-        formats: List[FormatType] = ["markdown"],
+        formats: Optional[List[FormatType]] = None,
         browser_config: Optional[Dict] = None,
         extraction_hook: Optional[Callable[[Tab], Dict]] = None,
         on_page_crawled: Optional[Callable[[Dict], Awaitable[None]]] = None,
-        extractor: Optional[Any] = None # Expects BaseExtractor
+        extractor: Optional[Any] = None, # Expects BaseExtractor
+        page_settle_time: float = 4.0,
     ):
         """
         :param start_urls: Single URL or list of URLs to start crawling from.
@@ -60,6 +65,8 @@ class Crawler:
         :param on_page_crawled: A custom async callback function called for every crawled page.
                                 Receives the data dict. Useful for streaming/saving to DB.
         :param extractor: An instance of `chuscraper.ai.BaseExtractor` (e.g. OpenAIExtractor) for structured extraction.
+        :param page_settle_time: Seconds to wait after navigation before extracting,
+                                 to let client-rendered content paint.
         """
         if sitemap_url:
             self.start_urls = []
@@ -76,16 +83,20 @@ class Crawler:
         self.max_pages = max_pages
         self.max_depth = max_depth
         self.concurrency = concurrency
-        self.formats = formats
+        self.formats = list(formats) if formats else ["markdown"]
         self.browser_config = browser_config or {}
         self.extraction_hook = extraction_hook
         self.on_page_crawled = on_page_crawled
         self.extractor = extractor
+        self.page_settle_time = page_settle_time
 
         self.visited: Set[str] = set()
         self.queue: asyncio.Queue = asyncio.Queue()
         self.results: List[Dict] = []
         self._browser: Optional[Browser] = None
+        # Guards the visited-set + max_pages check so N concurrent workers can't
+        # all pass the budget check and overshoot max_pages.
+        self._claim_lock = asyncio.Lock()
 
         # Calculate allowed domains (strip www. prefix)
         self.allowed_domains = set()
@@ -118,8 +129,17 @@ class Crawler:
         url, _ = urldefrag(url)
         return url
 
-    async def _fetch_sitemap(self, url: str) -> List[str]:
+    async def _fetch_sitemap(self, url: str, _seen: Optional[Set[str]] = None, _depth: int = 0) -> List[str]:
         """Fetches and parses a sitemap (and nested sitemaps)."""
+        # Sitemap indexes can point at each other (or at themselves); without a
+        # seen-set + depth cap that is unbounded recursion.
+        if _seen is None:
+            _seen = set()
+        if url in _seen or _depth > self.MAX_SITEMAP_DEPTH:
+            logger.debug(f"Skipping already-seen or too-deep sitemap: {url}")
+            return []
+        _seen.add(url)
+
         logger.info(f"Fetching sitemap: {url}")
         urls = []
         page = None
@@ -145,7 +165,7 @@ class Crawler:
                 for sm in sitemaps:
                     loc = sm.find("loc")
                     if loc:
-                        nested_urls = await self._fetch_sitemap(loc.text.strip())
+                        nested_urls = await self._fetch_sitemap(loc.text.strip(), _seen, _depth + 1)
                         urls.extend(nested_urls)
 
             # Check for urlset
@@ -206,106 +226,107 @@ class Crawler:
 
         return data
 
+    async def _emit(self, data: Dict) -> None:
+        """Hands a crawled page to the streaming callback, or stores it."""
+        if not self.on_page_crawled:
+            self.results.append(data)
+            return
+
+        try:
+            result = self.on_page_crawled(data)
+            # Support plain functions, async functions and anything awaitable.
+            # Previously a sync callback silently dropped the page entirely.
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.error(f"Error in on_page_crawled callback: {e}")
+
+    async def _claim(self, url: str) -> bool:
+        """Atomically reserve a crawl slot for `url`. False => skip it."""
+        async with self._claim_lock:
+            if url in self.visited:
+                return False
+            if len(self.visited) >= self.max_pages:
+                return False
+            self.visited.add(url)
+            return True
+
     async def _worker(self, worker_id: int, prompt: Optional[str] = None, schema: Optional[Any] = None):
         """
         A worker that picks URLs from the queue and processes them using a Tab.
+
+        Runs until cancelled by `run()` (which happens once `queue.join()`
+        reports every queued item has been accounted for). It deliberately does
+        *not* bail out on an idle queue: a sibling worker may still be loading a
+        page that is about to enqueue more links.
         """
         while True:
-            if len(self.visited) >= self.max_pages:
+            current_url, depth = await self.queue.get()
+
+            try:
+                if depth > self.max_depth:
+                    continue
+
+                if not await self._claim(current_url):
+                    continue
+
+                logger.info(f"[Worker-{worker_id}] Crawling: {current_url} (Depth: {depth})")
+
+                page = None
                 try:
-                    self.queue.get_nowait()
-                    self.queue.task_done()
-                except asyncio.QueueEmpty:
-                    pass
-                await asyncio.sleep(0.1)
-                continue
+                    page = await self._browser.get(current_url, new_tab=True)
+                    await page.sleep(self.page_settle_time)
 
-            try:
-                queue_item = await asyncio.wait_for(self.queue.get(), timeout=2.0)
-                current_url, depth = queue_item
-            except (asyncio.TimeoutError, asyncio.QueueEmpty):
-                if len(self.visited) > 0 and len(self.visited) < self.max_pages:
-                     # Debug log reduced to avoid spam
-                     pass
-                break
+                    final_url = self._normalize_url(page.url)
+                    if final_url != current_url:
+                        async with self._claim_lock:
+                            self.visited.add(final_url)
 
-            if depth > self.max_depth:
-                self.queue.task_done()
-                continue
+                    # Extract Data
+                    data = {}
+                    if self.extraction_hook:
+                        data = await self.extraction_hook(page)
+                    else:
+                        # Pass prompt/schema to extraction logic
+                        data = await self._extract_content(page, prompt, schema)
 
-            if current_url in self.visited:
-                self.queue.task_done()
-                continue
+                    await self._emit(data)
 
-            self.visited.add(current_url)
-            logger.info(f"[Worker-{worker_id}] Crawling: {current_url} (Depth: {depth})")
-
-            page = None
-            try:
-                page = await self._browser.get(current_url, new_tab=True)
-                await page.sleep(4)
-
-                final_url = self._normalize_url(page.url)
-                if final_url != current_url:
-                     self.visited.add(final_url)
-
-                # Extract Data
-                data = {}
-                if self.extraction_hook:
-                    data = await self.extraction_hook(page)
-                else:
-                    # Pass prompt/schema to extraction logic
-                    data = await self._extract_content(page, prompt, schema)
-
-                # Store or Stream
-                if self.on_page_crawled:
-                    try:
-                        if asyncio.iscoroutinefunction(self.on_page_crawled):
-                            await self.on_page_crawled(data)
-                        else:
-                            pass
-                    except Exception as e:
-                        logger.error(f"Error in on_page_crawled callback: {e}")
-                else:
-                    self.results.append(data)
-
-                # Extract Links (Only if NOT using sitemap mode, OR if depth allows exploration from sitemap URLs)
-                # Actually, Firecrawl usually treats sitemap URLs as depth 0.
-                # But here we treat them as whatever depth they came in (0).
-                # If max_depth > 0, we should explore links from sitemap pages too.
-                if depth < self.max_depth:
-                    links = []
-                    try:
-                        links = await page.get_all_urls(absolute=True)
-                    except Exception as e:
-                        logger.warning(f"[Worker-{worker_id}] CDP link extraction failed: {e}")
-
-                    if not links:
-                        logger.debug(f"[Worker-{worker_id}] Fallback to JS link extraction")
+                    # Extract Links. Sitemap URLs arrive at depth 0, so links are
+                    # explored from them too whenever max_depth allows it.
+                    if depth < self.max_depth:
+                        links = []
                         try:
-                            js_links = await page.evaluate("""
-                                Array.from(document.querySelectorAll('a[href]')).map(a => a.href)
-                            """)
-                            if js_links and isinstance(js_links, list):
-                                links = js_links
+                            # navigable=True keeps assets (.js/.css/images) out of
+                            # the crawl frontier.
+                            links = await page.get_all_urls(absolute=True, navigable=True)
                         except Exception as e:
-                            logger.error(f"[Worker-{worker_id}] JS link extraction failed: {e}")
+                            logger.warning(f"[Worker-{worker_id}] CDP link extraction failed: {e}")
 
-                    for link in links:
-                        normalized_link = self._normalize_url(link)
-                        if self._is_allowed(normalized_link):
-                            if normalized_link not in self.visited:
+                        if not links:
+                            logger.debug(f"[Worker-{worker_id}] Fallback to JS link extraction")
+                            try:
+                                js_links = await page.evaluate("""
+                                    Array.from(document.querySelectorAll('a[href]')).map(a => a.href)
+                                """)
+                                if js_links and isinstance(js_links, list):
+                                    links = js_links
+                            except Exception as e:
+                                logger.error(f"[Worker-{worker_id}] JS link extraction failed: {e}")
+
+                        for link in links:
+                            normalized_link = self._normalize_url(link)
+                            if self._is_allowed(normalized_link) and normalized_link not in self.visited:
                                 await self.queue.put((normalized_link, depth + 1))
 
-                await page.close()
-
-            except Exception as e:
-                logger.error(f"[Worker-{worker_id}] Failed to process {current_url}: {e}")
-                if page:
-                    try:
-                        await page.close()
-                    except:
-                        pass
+                except Exception as e:
+                    logger.error(f"[Worker-{worker_id}] Failed to process {current_url}: {e}")
+                finally:
+                    if page is not None:
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
             finally:
                 self.queue.task_done()
 
@@ -324,9 +345,11 @@ class Crawler:
                     for item in self.results:
                         f.write(json.dumps(item, ensure_ascii=False) + "\n")
             elif filename.endswith(".csv"):
-                all_keys = set().union(*(d.keys() for d in self.results))
+                # Preserve first-seen key order so the column layout is stable
+                # across runs (a set gave a different order every time).
+                all_keys = list(dict.fromkeys(k for d in self.results for k in d))
                 with open(filename, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=list(all_keys))
+                    writer = csv.DictWriter(f, fieldnames=all_keys)
                     writer.writeheader()
                     writer.writerows(self.results)
             elif filename.endswith(".md"):
@@ -373,12 +396,19 @@ class Crawler:
             # Create workers (pass prompt/schema)
             workers = [asyncio.create_task(self._worker(i, prompt, schema)) for i in range(self.concurrency)]
 
-            await self.queue.join()
-
-            for w in workers:
-                w.cancel()
-
-            await asyncio.gather(*workers, return_exceptions=True)
+            try:
+                # Workers block on the queue forever, so join() is what signals
+                # completion. Race it against the workers themselves so a worker
+                # crashing can never leave us hanging on join() for good.
+                drained = asyncio.create_task(self.queue.join())
+                await asyncio.wait([drained, *workers], return_when=asyncio.FIRST_COMPLETED)
+                if not drained.done():
+                    logger.error("Crawl workers exited before the queue was drained.")
+                    drained.cancel()
+            finally:
+                for w in workers:
+                    w.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
 
         finally:
             if self._browser:

@@ -5,7 +5,9 @@ from chuscraper.core.stealth import SystemProfile
 
 BrowserConfig = Config
 
-__version__ = "0.19.4"
+# Single source of truth: _version.py is what pyproject/hatch reads, so the
+# hardcoded duplicate here had drifted (0.19.4 vs the released 0.19.9).
+from chuscraper._version import __version__
 
 __all__ = [
     "__version__",

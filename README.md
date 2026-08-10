@@ -55,7 +55,7 @@ Chuscraper now includes an advanced **Auto-Update** and **Fingerprint Rotation**
 - **Auto-Update Chrome Version:** Automatically detects your installed Chrome version and updates the User-Agent to match. No manual updates required!
 - **Fingerprint Rotation:** Randomizes hardware fingerprints (RAM, CPU, Screen Resolution) per session while strictly adhering to your host OS (Windows, macOS, Linux) to prevent OS mismatch detection.
 - **Client Hints Sync:** Automatically patches `navigator.userAgentData` to match the User-Agent string.
-- **Advanced Stealth Patches:** 6 core JS bypasses for WebDriver, Chrome Runtime, Canvas/WebGL noise, and iFrame leaks.
+- **Advanced Stealth Patches:** 8 core JS bypasses for WebDriver, Chrome Runtime, navigator.plugins, notifications, screen geometry, Playwright traces, Canvas/WebGL noise, and iFrame leaks. Each is injected separately and can be toggled individually via `stealth_options`.
 - **Modern Timezones:** Automatically syncs browser timezone with IP location using modern IANA names.
 
 ### ⚡ Async + Fast
@@ -73,7 +73,7 @@ Chuscraper has several advanced functions that are often missed:
 - **`save_snapshot(filename)`**: Save a full MHTML snapshot of the current page.
 - **`to_markdown()` / `to_text()`**: Convert any live `Element` directly to Markdown or plain text.
 - **`wait_for_ready_state(state)`**: Wait specifically for `loading`, `interactive`, or `complete` document states.
-- **`mouse_drag(destination)`**: Perform native drag-and-drop operations with human-like movement.
+- **`mouse_drag(source, destination)`**: Perform native drag-and-drop operations with human-like movement.
 - **`print_to_pdf(filename)`**: Export the current page as a professional PDF.
 - **`get_all_urls()`**: Extract every link, image, and asset URL from the page in one call.
 - **`scroll_down(amount=25)`**: Smoothly scroll down by a percentage of the page height.

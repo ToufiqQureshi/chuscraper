@@ -23,10 +23,22 @@ class LocalAuthProxy:
         if "://" not in upstream_proxy_url:
             upstream_proxy_url = "http://" + upstream_proxy_url
         self.upstream = urlparse(upstream_proxy_url)
+
+        # This forwarder speaks HTTP proxy semantics (CONNECT + header
+        # injection). SOCKS is a different wire protocol entirely - forwarding
+        # HTTP headers into a SOCKS proxy just produced silent failures.
+        scheme = (self.upstream.scheme or "http").lower()
+        if scheme in ("socks4", "socks5", "socks5h"):
+            raise ValueError(
+                f"LocalAuthProxy cannot proxy {scheme}:// upstreams - it only "
+                "speaks HTTP. Pass the SOCKS proxy without credentials so Chrome "
+                "connects to it directly (SOCKS auth is not supported by Chrome)."
+            )
+
         self.upstream_host = self.upstream.hostname
-        self.upstream_port = self.upstream.port or 80
+        self.upstream_port = self.upstream.port or (443 if scheme == "https" else 80)
         self.auth_header = None
-        
+
         if self.upstream.username and self.upstream.password:
             auth = f"{self.upstream.username}:{self.upstream.password}"
             encoded = base64.b64encode(auth.encode()).decode()
@@ -85,13 +97,20 @@ class LocalAuthProxy:
             
         upstream_writer = None
         try:
-            # Read first chunk (headers)
-            chunk = await asyncio.wait_for(client_reader.read(4096), timeout=5.0)
+            # Read until the end of the header block rather than assuming it all
+            # arrives in one 4KB chunk - a split or oversized header set used to
+            # corrupt the request when auth was injected into a partial buffer.
+            chunk = b""
+            while b"\r\n\r\n" not in chunk and b"\n\n" not in chunk:
+                part = await asyncio.wait_for(client_reader.read(4096), timeout=5.0)
+                if not part:
+                    break
+                chunk += part
+                if len(chunk) > 65536:  # header block this large is not legitimate
+                    break
             if not chunk:
                 return
 
-            is_connect = chunk.startswith(b"CONNECT")
-            
             # Inject Auth if we have it and it's not already there
             if self.auth_header and b"Proxy-Authorization" not in chunk:
                 # Standard HTTP header injection
@@ -111,7 +130,7 @@ class LocalAuthProxy:
                     asyncio.open_connection(self.upstream_host, self.upstream_port),
                     timeout=5.0
                 )
-            except (asyncio.TimeoutError, Exception) as e:
+            except Exception as e:
                 logger.error(f"Failed to connect to upstream proxy {self.upstream_host}:{self.upstream_port}: {e}")
                 return
 

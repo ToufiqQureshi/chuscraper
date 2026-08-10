@@ -23,7 +23,16 @@ logger = logging.getLogger(__name__)
 class Position(cdp.dom.Quad):
     def __init__(self, points: list[float]):
         super().__init__(points)
-        (self.left, self.top, self.right, self.top, self.right, self.bottom, self.left, self.bottom) = points
+        # A CDP quad is 4 corners: top-left, top-right, bottom-right, bottom-left.
+        # The previous unpack listed each name twice in one tuple target
+        # (left, top, right, top, right, bottom, left, bottom), so "last write
+        # wins" silently picked corners 3/4 - correct only by coincidence for
+        # axis-aligned boxes, and wrong for any CSS-transformed element.
+        # Take the real bounding box instead.
+        xs = points[0::2]
+        ys = points[1::2]
+        self.left, self.right = min(xs), max(xs)
+        self.top, self.bottom = min(ys), max(ys)
         self.abs_x, self.abs_y = 0, 0
         self.x, self.y = self.left, self.top
         self.height, self.width = (self.bottom - self.top, self.right - self.left)
@@ -43,6 +52,21 @@ class ElementInteractionMixin(ElementMixin):
     def remote_object(self) -> cdp.runtime.RemoteObject | None:
         return self._remote_object
 
+    def _cdp_backend_id(self) -> cdp.dom.BackendNodeId:
+        """
+        The backend node id as the type CDP expects.
+
+        These calls used to be passed `int(self.backend_node_id)`. The generated
+        bindings call `.to_json()` on the argument, so a plain int raised
+        AttributeError - which the surrounding bare `except:` swallowed. The net
+        effect was that resolve_node() never succeeded, so apply() (and
+        everything built on it: fill, clear_input, focus, get_js_attributes)
+        failed with "Could not resolve object" for any element found via
+        select() / query_selector().
+        """
+        bid = self.backend_node_id
+        return bid if hasattr(bid, "to_json") else cdp.dom.BackendNodeId(int(bid))
+
     async def update(self, _node: cdp.dom.Node | None = None) -> Element:
         bid = int(self.backend_node_id)
         if bid <= 0:
@@ -60,7 +84,7 @@ class ElementInteractionMixin(ElementMixin):
             # Refresh remote object
             self._remote_object = None
             try:
-                ro = await self.tab.send(cdp.dom.resolve_node(backend_node_id=bid))
+                ro = await self.tab.send(cdp.dom.resolve_node(backend_node_id=self._cdp_backend_id()))
                 setattr(self, "_remote_object", ro)
             except: pass
 
@@ -104,10 +128,30 @@ class ElementInteractionMixin(ElementMixin):
         await self.scroll_into_view()
         pos = await self.get_position(retry=retry)
         if not pos: return await self.apply("(el) => el.click()", retry=retry)
+
+        # Aim slightly off dead-centre: a pixel-perfect centre hit on every
+        # click is itself a bot signal.
         cx, cy = pos.center
-        await self.tab.send(cdp.input_.dispatch_mouse_event("mousePressed", x=cx, y=cy, button=cdp.input_.MouseButton(button), click_count=click_count))
+        cx += random.uniform(-pos.width / 6, pos.width / 6)
+        cy += random.uniform(-pos.height / 6, pos.height / 6)
+
+        # Approach the target with real mouseMoved events before pressing.
+        # Pressing with no preceding movement leaves :hover unset and is one of
+        # the easiest automation tells to check for.
+        steps = random.randint(3, 6)
+        for i in range(1, steps + 1):
+            ratio = i / steps
+            await self.tab.send(cdp.input_.dispatch_mouse_event(
+                "mouseMoved",
+                x=cx - (cx * 0.02) * (1 - ratio),
+                y=cy - (cy * 0.02) * (1 - ratio),
+            ))
+            await asyncio.sleep(random.uniform(0.01, 0.03))
+
+        await asyncio.sleep(random.uniform(0.02, 0.06))
+        await self.tab.send(cdp.input_.dispatch_mouse_event("mousePressed", x=cx, y=cy, button=cdp.input_.MouseButton(button), click_count=click_count, buttons=1))
         await asyncio.sleep(random.uniform(0.05, 0.1))
-        await self.tab.send(cdp.input_.dispatch_mouse_event("mouseReleased", x=cx, y=cy, button=cdp.input_.MouseButton(button), click_count=click_count))
+        await self.tab.send(cdp.input_.dispatch_mouse_event("mouseReleased", x=cx, y=cy, button=cdp.input_.MouseButton(button), click_count=click_count, buttons=1))
 
     async def apply(self, js: str, return_by_value: bool = True, await_promise: bool = False, retry: bool = True) -> Any:
         bid = int(self.backend_node_id)
@@ -128,9 +172,13 @@ class ElementInteractionMixin(ElementMixin):
             script = f"(function(el) {{ if (!el) return null; return ({func})(el); }})({fcode})"
             try:
                 res, err = await self.tab.send(cdp.runtime.evaluate(script, user_gesture=True, await_promise=await_promise, return_by_value=return_by_value))
-                if err: return None, False
+                if err:
+                    logger.debug(f"JS path failed for {js!r}: {getattr(err, 'text', err)}")
+                    return None, False
                 return (res.value if return_by_value else res), True
-            except: return None, False
+            except Exception as e:
+                logger.debug(f"JS path raised for {js!r}: {e}")
+                return None, False
 
         if bid <= 0:
             val, ok = await try_js_path()
@@ -140,7 +188,7 @@ class ElementInteractionMixin(ElementMixin):
 
         # Path 2: Standard CDP
         if not self.remote_object:
-            try: self._remote_object = await self.tab.send(cdp.dom.resolve_node(backend_node_id=bid))
+            try: self._remote_object = await self.tab.send(cdp.dom.resolve_node(backend_node_id=self._cdp_backend_id()))
             except: pass
 
         if not self.remote_object or not self.remote_object.object_id:
@@ -151,6 +199,13 @@ class ElementInteractionMixin(ElementMixin):
         try:
             res = await self.tab.send(cdp.runtime.call_function_on(js, object_id=self.remote_object.object_id, arguments=[cdp.runtime.CallArgument(object_id=self.remote_object.object_id)], return_by_value=return_by_value, user_gesture=True, await_promise=await_promise))
             if res:
+                # call_function_on returns (RemoteObject, exceptionDetails).
+                # Ignoring the second element meant a JS exception in the page
+                # was reported as a successful call returning the error object.
+                if len(res) > 1 and res[1]:
+                    raise ProtocolException(
+                        f"JS raised in apply(): {getattr(res[1], 'text', res[1])}"
+                    )
                 if len(res) > 0 and res[0]: return res[0].value if return_by_value else res[0]
                 return None
         except Exception as e:
@@ -166,7 +221,7 @@ class ElementInteractionMixin(ElementMixin):
     async def get_html(self) -> str:
         bid = int(self.backend_node_id)
         if bid > 0:
-            try: return await self.tab.send(cdp.dom.get_outer_html(backend_node_id=bid))
+            try: return await self.tab.send(cdp.dom.get_outer_html(backend_node_id=self._cdp_backend_id()))
             except: pass
         return await self.apply("(el) => el.outerHTML") or ""
 
@@ -182,7 +237,7 @@ class ElementInteractionMixin(ElementMixin):
             except: pass
             return None
         if not self.remote_object or not self.object_id:
-            try: self._remote_object = await self.tab.send(cdp.dom.resolve_node(backend_node_id=bid))
+            try: self._remote_object = await self.tab.send(cdp.dom.resolve_node(backend_node_id=self._cdp_backend_id()))
             except: pass
         if not self.remote_object or not self.object_id: return None
         try:
@@ -200,18 +255,25 @@ class ElementInteractionMixin(ElementMixin):
             return None
 
     async def type(self, text: str, delay: float = 0.0, retry: bool = True) -> None:
+        """
+        Type `text` one character at a time, pausing `delay` seconds between them.
+
+        Focus is taken once up front; previously every character re-focused the
+        element, costing an extra CDP round-trip per keystroke.
+        """
         await self.apply("(el) => el.focus()", retry=retry)
         for char in text:
-            await self.send_keys(char, retry=retry)
+            await self.send_keys(char, retry=retry, focus=False)
             if delay > 0: await asyncio.sleep(delay)
 
     async def fill(self, text: str, retry: bool = True) -> None:
         await self.apply("(el) => el.focus()", retry=retry)
-        await self.apply('function(e){ e.value = "" }', retry=retry)
-        await self.send_keys(text, retry=retry)
+        await self.clear_input(retry=retry)
+        await self.send_keys(text, retry=retry, focus=False)
 
-    async def send_keys(self, text: Union[str, SpecialKeys, List[KeyEvents.Payload]], retry: bool = True) -> None:
-        await self.apply("(el) => el.focus()", retry=retry)
+    async def send_keys(self, text: Union[str, SpecialKeys, List[KeyEvents.Payload]], retry: bool = True, focus: bool = True) -> None:
+        if focus:
+            await self.apply("(el) => el.focus()", retry=retry)
         if isinstance(text, str): cluster_list = KeyEvents.from_text(text, KeyPressEvent.CHAR)
         elif isinstance(text, SpecialKeys): cluster_list = KeyEvents(text).to_cdp_events(KeyPressEvent.DOWN_AND_UP)
         else: cluster_list = text
@@ -229,7 +291,7 @@ class ElementInteractionMixin(ElementMixin):
         bid = int(self.backend_node_id)
         if bid <= 0: await self.apply("(el) => el.scrollIntoView({behavior:'auto', block:'center'})")
         else:
-            try: await self.tab.send(cdp.dom.scroll_into_view_if_needed(backend_node_id=bid))
+            try: await self.tab.send(cdp.dom.scroll_into_view_if_needed(backend_node_id=self._cdp_backend_id()))
             except: await self.apply("(el) => el.scrollIntoView({behavior:'auto', block:'center'})")
 
     async def focus(self) -> None: await self.apply("(el) => el.focus()")
@@ -248,9 +310,37 @@ class ElementInteractionMixin(ElementMixin):
             node = util.filter_recurse(self.tree, lambda n: n.backend_node_id == bid)
             if node: await self.tab.send(cdp.dom.remove_node(node.node_id))
 
-    async def clear_input(self, retry: bool = True) -> None: await self.apply('function(e){e.value=""}', retry=retry)
+    async def clear_input(self, retry: bool = True) -> None:
+        """
+        Clear an input's value.
+
+        Assigning ``.value`` directly fires no events, so React/Vue/Angular kept
+        their old state and re-rendered the previous text straight back. Using
+        the native value setter plus dispatching input+change is what those
+        frameworks actually listen for.
+        """
+        await self.apply(
+            """(el) => {
+                const proto = el instanceof HTMLTextAreaElement
+                    ? HTMLTextAreaElement.prototype
+                    : HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+                if (setter && setter.set) { setter.set.call(el, ''); }
+                else { el.value = ''; }
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }""",
+            retry=retry,
+        )
     async def send_file(self, *file_paths: PathLike, retry: bool = True) -> None:
-        try: await self.tab.send(cdp.dom.set_file_input_files(files=[str(p) for p in file_paths], backend_node_id=self.backend_node_id, object_id=self.object_id))
+        # DOM.setFileInputFiles takes exactly one of nodeId/backendNodeId/objectId;
+        # passing two is a protocol error on newer Chrome builds.
+        target = (
+            {"backend_node_id": self._cdp_backend_id()}
+            if int(self.backend_node_id) > 0
+            else {"object_id": self.object_id}
+        )
+        try: await self.tab.send(cdp.dom.set_file_input_files(files=[str(p) for p in file_paths], **target))
         except Exception as e:
             if retry and (("-32000" in str(e)) or ("id" in str(e))):
                 await self.update()

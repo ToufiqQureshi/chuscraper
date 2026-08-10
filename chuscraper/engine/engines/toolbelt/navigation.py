@@ -1,12 +1,19 @@
 from pathlib import Path
 from functools import lru_cache
 from urllib.parse import urlparse
-from playwright.async_api import Route as async_Route
+from typing import TYPE_CHECKING
 from msgspec import Struct, structs, convert, ValidationError
-from playwright.sync_api import Route
 from chuscraper.engine.core.utils import log
 from chuscraper.engine.core._types import Dict, Set, Tuple, Optional, Callable
 from chuscraper.engine.engines.constants import EXTRA_RESOURCES
+
+if TYPE_CHECKING:
+    # playwright is only needed for the optional route-interception helpers
+    # below. Importing it eagerly meant `import chuscraper` - and therefore the
+    # whole stealth engine, which only wanted js_bypass_path() from this module
+    # - hard-failed unless playwright was installed.
+    from playwright.async_api import Route as async_Route
+    from playwright.sync_api import Route
 
 __BYPASSES_DIR__ = Path(__file__).parents[2] / "bypasses"
 
@@ -18,7 +25,7 @@ class ProxyDict(Struct):
 def create_intercept_handler(disable_resources: bool, blocked_domains: Optional[Set[str]] = None) -> Callable:
     disabled_resources = EXTRA_RESOURCES if disable_resources else set()
     domains = blocked_domains or set()
-    def handler(route: Route):
+    def handler(route: "Route"):
         if route.request.resource_type in disabled_resources: route.abort()
         elif domains:
             hostname = urlparse(route.request.url).hostname or ""
@@ -30,7 +37,7 @@ def create_intercept_handler(disable_resources: bool, blocked_domains: Optional[
 def create_async_intercept_handler(disable_resources: bool, blocked_domains: Optional[Set[str]] = None) -> Callable:
     disabled_resources = EXTRA_RESOURCES if disable_resources else set()
     domains = blocked_domains or set()
-    async def handler(route: async_Route):
+    async def handler(route: "async_Route"):
         if route.request.resource_type in disabled_resources: await route.abort()
         elif domains:
             hostname = urlparse(route.request.url).hostname or ""

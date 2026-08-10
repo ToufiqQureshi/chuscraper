@@ -2,7 +2,39 @@ from enum import Enum, IntEnum
 from typing import List, Optional, Tuple, TypedDict, Union
 
 import emoji
-import grapheme  # type: ignore
+
+try:
+    import grapheme  # type: ignore
+
+    def _iter_graphemes(text: str):
+        return grapheme.graphemes(text)
+
+except ImportError:  # pragma: no cover - depends on the install environment
+    # `grapheme` is a 2020-era sdist whose setup.py no longer builds under
+    # modern setuptools, so `pip install chuscraper` could fail outright on it.
+    # It is only needed to keep multi-codepoint clusters (flags, skin-tone
+    # emoji, combining marks) together while typing, so degrade to a
+    # combining-mark-aware fallback instead of making the whole package
+    # uninstallable.
+    import unicodedata
+
+    def _iter_graphemes(text: str):
+        cluster = ""
+        for char in text:
+            # Combining marks and ZWJ sequences attach to the previous char.
+            if cluster and (
+                unicodedata.combining(char)
+                or char in ("‍", "️")
+                or (cluster[-1] == "‍")
+                or ("\U0001F3FB" <= char <= "\U0001F3FF")  # skin tone modifiers
+            ):
+                cluster += char
+                continue
+            if cluster:
+                yield cluster
+            cluster = char
+        if cluster:
+            yield cluster
 
 
 class KeyModifiers(IntEnum):
@@ -517,7 +549,7 @@ class KeyEvents:
 
         all_payload: List[KeyEvents.Payload] = []
 
-        for grapheme_char in grapheme.graphemes(text):
+        for grapheme_char in _iter_graphemes(text):
             if grapheme_char is None or grapheme_char == "":
                 continue
 

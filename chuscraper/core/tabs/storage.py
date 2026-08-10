@@ -1,10 +1,16 @@
 from __future__ import annotations
 from .base import TabMixin
 import json
-from typing import TYPE_CHECKING, List, Dict
+import logging
+from typing import TYPE_CHECKING, List, Dict, Optional, Union
 
-if TYPE_CHECKING:
-    from ..tab import Tab
+
+# `logger`, `Optional` and `Union` were all used below but never imported.
+# `from __future__ import annotations` hid the annotation ones until runtime
+# introspection touched them, but `logger.debug(...)` in the except blocks was a
+# guaranteed NameError - so any localStorage failure raised NameError instead of
+# being logged and handled.
+logger = logging.getLogger(__name__)
 
 class StorageMixin(TabMixin):
     async def get_cookies(self) -> List[Dict]:

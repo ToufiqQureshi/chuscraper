@@ -19,15 +19,14 @@ class TargetManagerMixin(BrowserMixin):
     @property
     def main_tab(self) -> Tab | None:
         """returns the target which was launched with the browser"""
-        results = sorted(
-            self.browser._targets, key=lambda x: x.type_ == "page", reverse=True
-        )
-        if len(results) > 0:
-            result = results[0]
-            from ..tab import Tab as TabClass
+        from ..tab import Tab as TabClass
 
-            if isinstance(result, TabClass):
-                return result
+        # Only ever hand back an actual page. The old sort put pages first but
+        # still returned results[0] when there were none, so callers could get
+        # an iframe/worker target back as the "main tab".
+        for target in self.browser._targets:
+            if target.type_ == "page" and isinstance(target, TabClass):
+                return target
         return None
 
     @property
@@ -87,6 +86,11 @@ class TargetManagerMixin(BrowserMixin):
                 if target_info.type_ != "page":
                     return
 
+                # update_targets() polling and this event can both see the same
+                # new target, which used to append it twice.
+                if any(t.target_id == target_info.target_id for t in self.browser._targets):
+                    return
+
                 from ..tab import Tab
 
                 new_target = Tab(
@@ -143,7 +147,6 @@ class TargetManagerMixin(BrowserMixin):
     ) -> None:
         """Handles Target.attachedToTarget. Resumes execution if waiting for debugger."""
         session_id = event.session_id
-        target_info = event.target_info
 
         if event.waiting_for_debugger:
             # ALWAYS RESUME execution, otherwise the tab hangs forever
@@ -231,7 +234,12 @@ class TargetManagerMixin(BrowserMixin):
 
     async def goto(self, url: str) -> Tab:
         """Shortcut for browser.main_tab.get(url)."""
-        return await self.main_tab.get(url)  # type: ignore
+        # main_tab can legitimately be None (all tabs closed); calling .get() on
+        # it raised an opaque NoneType AttributeError. Open one instead.
+        tab = self.main_tab
+        if tab is None:
+            return await self.get(url, new_tab=True)
+        return await tab.get(url)
 
     async def scrape(self, selector: str, timeout: typing.Union[int, float] = 10):
         """Shortcut for browser.main_tab.select(selector)."""
@@ -269,8 +277,14 @@ class TargetManagerMixin(BrowserMixin):
             except: continue
 
         num_windows = len(distinct_windows)
-        req_cols = max_columns or int(num_windows * (19 / 6))
-        req_rows = int(num_windows / req_cols)
+        if not num_windows:
+            logger.info("no windows to tile")
+            return []
+
+        # max(..., 1) - with a single window the old formula produced 0 columns
+        # and the next line divided by it.
+        req_cols = max(max_columns or int(num_windows * (19 / 6)), 1)
+        req_rows = max(int(num_windows / req_cols), 1)
 
         while req_cols * req_rows < num_windows:
             req_rows += 1

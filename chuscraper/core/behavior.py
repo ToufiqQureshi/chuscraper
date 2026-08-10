@@ -46,10 +46,14 @@ class HumanBehavior:
         delay_range = speeds.get(speed, speeds['medium'])
         
         if direction == 'to_bottom':
-            # Scroll to bottom in natural chunks
-            viewport_height = await page.evaluate("window.innerHeight")
-            total_height = await page.evaluate("document.body.scrollHeight")
-            
+            # Scroll to bottom in natural chunks.
+            # documentElement.scrollHeight is the reliable one - document.body
+            # reports 0 on the many layouts that scroll an inner container.
+            viewport_height = await page.evaluate("window.innerHeight") or 800
+            total_height = await page.evaluate(
+                "Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)"
+            ) or viewport_height
+
             current_pos = 0
             while current_pos < total_height:
                 # Random scroll distance
@@ -127,18 +131,18 @@ class HumanBehavior:
         """
         viewport_width = await page.evaluate("window.innerWidth")
         viewport_height = await page.evaluate("window.innerHeight")
-        
+        if not viewport_width or not viewport_height:
+            return
+
         for _ in range(num_moves):
-            x = random.randint(0, viewport_width)
-            y = random.randint(0, viewport_height)
-            
-            # Move mouse (via CDP)
-            try:
-                await page.mouse.move(x, y)
-                await asyncio.sleep(random.uniform(0.1, 0.3))
-            except:
-                # Fallback if mouse API not available
-                pass
+            x = random.randint(0, int(viewport_width))
+            y = random.randint(0, int(viewport_height))
+
+            # Tab exposes mouse_move(); the old code called page.mouse.move(),
+            # which does not exist here, inside a bare `except: pass` - so this
+            # entire anti-detection routine silently did nothing, every time.
+            await page.mouse_move(x, y, steps=random.randint(4, 10))
+            await asyncio.sleep(random.uniform(0.1, 0.3))
     
     @staticmethod
     async def page_dwell_time(min_sec: float = 5.0, max_sec: float = 15.0) -> None:

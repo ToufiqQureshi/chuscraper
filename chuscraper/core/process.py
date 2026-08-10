@@ -111,6 +111,35 @@ def register_browser_cleanup(registry: Set[Browser]) -> None:
     atexit.register(cleanup_registered_browsers)
 
 
+def drain_pipe(pipe: Any) -> None:
+    """
+    Continuously discard a subprocess pipe so it can never fill up.
+
+    Chrome is chatty on stdout/stderr. Nothing ever read those pipes, so on a
+    long or verbose session the 64KB buffer filled and Chrome blocked on write -
+    which looked, from the outside, like a browser that had frozen mid-scrape.
+    """
+    if pipe is None:
+        return
+
+    import threading
+
+    def _drain() -> None:
+        try:
+            for line in iter(pipe.readline, b""):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("browser: %s", line.decode("utf-8", "ignore").rstrip())
+        except Exception:
+            pass
+        finally:
+            try:
+                pipe.close()
+            except Exception:
+                pass
+
+    threading.Thread(target=_drain, daemon=True, name="chuscraper-pipe-drain").start()
+
+
 def start_process(
     exe: str | Path,
     params: list[str],
@@ -126,6 +155,9 @@ def start_process(
         # Hides the console window on Windows
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
+    # NB: stdout/stderr are left for the caller to consume. Browser.start()
+    # drains them once it no longer needs to read them itself - see the
+    # _drain_pipe() calls there.
     proc = subprocess.Popen(
         [str(exe)] + params,
         **kwargs
