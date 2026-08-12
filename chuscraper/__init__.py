@@ -1,5 +1,4 @@
 from chuscraper.core.keys import KeyEvents, SpecialKeys, KeyPressEvent, KeyModifiers
-from chuscraper.core.observability import Logger, FailureDumper
 from chuscraper.core.config import Config
 from chuscraper.core.stealth import SystemProfile
 
@@ -43,3 +42,31 @@ from chuscraper.core.connection import Connection
 from chuscraper.core._contradict import ContraDict, cdict
 from chuscraper.mobile import MobileDevice, MobileElement
 from chuscraper import cdp
+
+
+# ── Deprecated, removed in 0.22 ──────────────────────────────────────────────
+# Exposed lazily so `import chuscraper` stays warning-free for everyone who
+# doesn't actually touch them.
+_DEPRECATED_ATTRS = {
+    "Logger": ("chuscraper.core.observability", "use the stdlib `logging` module"),
+    "FailureDumper": ("chuscraper.core.observability", "handle failure artefacts in your own error path"),
+    "HumanBehavior": ("chuscraper.core.behavior", "use the stealth engine and click(mode='human')"),
+    "RateLimiter": ("chuscraper.core.limiter", "use asyncio.Semaphore or aiolimiter"),
+    "SessionManager": ("chuscraper.core.limiter", "track session duration in your own code"),
+}
+
+
+def __getattr__(name: str):
+    if name in _DEPRECATED_ATTRS:
+        import importlib
+        import warnings
+
+        module_path, advice = _DEPRECATED_ATTRS[name]
+        warnings.warn(
+            f"chuscraper.{name} is deprecated and will be removed in chuscraper "
+            f"0.22 - {advice}.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(importlib.import_module(module_path), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

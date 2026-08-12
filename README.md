@@ -33,6 +33,21 @@ It converts standard Chromium instances into undetectable agents that can bypass
 
 ---
 
+## 🎯 What Chuscraper Is
+
+Four things, deliberately. Nothing else.
+
+| Pillar | What you get |
+|---|---|
+| 🕵️ **Stealth scraping** | 8 JS bypasses, host-accurate fingerprints, Client Hints sync, adaptive selectors that survive redesigns |
+| 🎮 **Web automation** | Full CDP control — clicks, typing, forms, network interception, screenshots, PDF |
+| 📱 **Mobile scraping & automation** | Native Android apps over ADB. No Appium, no server. |
+| 🤖 **AI extraction** | Clean LLM-ready markdown, plus schema-enforced structured JSON via OpenAI or local Ollama |
+
+**15 runtime dependencies. No Playwright, no Selenium, no browser bundles.**
+
+---
+
 ## 🌟 Key Features
 
 ### 🕷️ Universal Crawler (New!)

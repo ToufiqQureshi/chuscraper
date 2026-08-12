@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.21.0 — Scope: four pillars
+
+chuscraper is now deliberately four things and nothing else:
+**stealth scraping · web automation · mobile (ADB) scraping & automation · AI extraction.**
+
+Everything outside that has been removed or deprecated. Nothing in the four
+pillars changed behaviour.
+
+### Removed (dead code, no public API)
+
+- `chuscraper/engine/engines/` — its route-interception handlers were never
+  called from anywhere. `js_bypass_path()` (one line) moved into `core/stealth.py`
+  and `fingerprints.py` moved up to `chuscraper/engine/`.
+- `Browser.tile_windows()` — window tiling; never called, and it raised
+  `ZeroDivisionError` with no windows open.
+
+### Deprecated (still works, removed in 0.22)
+
+These stay importable and emit a `DeprecationWarning`:
+
+- `HumanBehavior` (`core.behavior`) — the stealth engine plus
+  `click(mode="human")` and `type(..., delay=...)` already cover this. Keeping a
+  second implementation is how `mouse_movement_pattern()` stayed a silent no-op.
+- `RateLimiter`, `SessionManager` (`core.limiter`) — use `asyncio.Semaphore`, or
+  `aiolimiter` for token buckets.
+- `Logger`, `FailureDumper` (`core.observability`) — use the stdlib `logging`
+  module and handle failure artefacts in your own error path.
+
+`import chuscraper` remains warning-free: deprecated names resolve lazily
+through a module `__getattr__`, so you only see a warning if you use one.
+
+### Dependencies: 22 → 15
+
+| Removed | Why |
+|---|---|
+| **`playwright`** | Never used functionally — only two type hints in the deleted `engines/` subtree, on handlers nothing called. ~50MB plus browser downloads, in every install. |
+| `msgspec` | Only used by that same dead file. |
+| `mss` | Only used by `tile_windows()`. |
+| `curl_cffi` | Declared but never imported anywhere. |
+| `psutil` | Only used by the test suite — moved to the dev group. |
+
+(`grapheme` became optional in 0.20.0.)
+
+### Added
+
+- `tests/core/test_scope.py` — guards the scope: fails if a heavy dependency
+  returns, if `import chuscraper` starts emitting warnings, if a pillar entry
+  point breaks, or if removed helpers come back.
+
+### Repo cleanup
+
+- `verify_17.py` — scratch verification script from an old release.
+- `publish.ps1` — three-line `twine upload` wrapper; the publish workflow
+  already does this.
+- `codecov.yml` — no workflow uploads coverage.
+- `tests/Dockerfile`, `tests/next_test.sh` — an interactive VNC test harness
+  that no longer runs: it calls `uv sync --frozen` with no `uv.lock` in the
+  repo, and its entrypoint is `./scripts/test.sh`, which does not exist.
+- CI matrix trimmed from four Python versions to the oldest and newest
+  supported (3.10, 3.13), and the `setup-node` step dropped since node is
+  preinstalled on `ubuntu-latest`.
+
 ## 0.20.0 — Bug sweep
 
 A full pass over the codebase for correctness bugs. Several headline features

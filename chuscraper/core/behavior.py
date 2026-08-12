@@ -8,6 +8,16 @@ This module provides utilities to simulate natural human browsing patterns:
 - Mouse movement simulation
 """
 
+import warnings as _warnings
+
+_DEPRECATION = """HumanBehavior is deprecated and will be removed in chuscraper 0.22.
+
+The stealth engine plus click(mode='human') and type(..., delay=...) already
+cover this, and keeping a second implementation meant two things to keep in
+sync - which is how mouse_movement_pattern() stayed a silent no-op."""
+
+_warnings.warn(_DEPRECATION, DeprecationWarning, stacklevel=2)
+
 import asyncio
 import random
 

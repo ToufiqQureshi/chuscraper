@@ -14,8 +14,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional, List, Tuple
 
-from chuscraper.engine.engines.toolbelt.fingerprints import generate_headers
-from chuscraper.engine.engines.toolbelt.navigation import js_bypass_path
+from chuscraper.engine.fingerprints import generate_headers
 
 if TYPE_CHECKING:
     from chuscraper.core.tab import Tab
@@ -24,6 +23,14 @@ logger = logging.getLogger(__name__)
 
 # Default cookie store: ~/.chuscraper/cookies/
 COOKIE_DIR = pathlib.Path.home() / ".chuscraper" / "cookies"
+
+#: where the injected JS bypass files live
+BYPASSES_DIR = pathlib.Path(__file__).parent.parent / "engine" / "bypasses"
+
+
+def js_bypass_path(filename: str) -> str:
+    """Absolute path to a bundled JS bypass script."""
+    return str(BYPASSES_DIR / filename)
 
 
 def host_platform() -> Tuple[str, str, str, str]:

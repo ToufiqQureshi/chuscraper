@@ -7,6 +7,15 @@ Implements:
 - Session duration manager
 """
 
+import warnings as _warnings
+
+_DEPRECATION = """chuscraper.core.limiter is deprecated and will be removed in chuscraper 0.22.
+
+Use asyncio.Semaphore for concurrency limits, or a dedicated library such as
+aiolimiter for token-bucket rate limiting."""
+
+_warnings.warn(_DEPRECATION, DeprecationWarning, stacklevel=2)
+
 import asyncio
 import time
 from collections import deque

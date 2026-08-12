@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import typing
-from collections import defaultdict
 from .base import BrowserMixin
 from ... import cdp
 from .. import util
@@ -245,70 +244,3 @@ class TargetManagerMixin(BrowserMixin):
         """Shortcut for browser.main_tab.select(selector)."""
         if not self.main_tab: return None
         return await self.main_tab.select(selector, timeout=timeout)
-
-    async def tile_windows(
-        self, windows: typing.List[Tab] | None = None, max_columns: int = 0
-    ) -> typing.List[typing.List[int]]:
-        import math
-        try:
-             import mss
-             m = mss.mss()
-             screen_width, screen_height = None, None
-             if m.monitors and len(m.monitors) >= 1:
-                 screen = m.monitors[0]
-                 screen_width = screen["width"]
-                 screen_height = screen["height"]
-        except:
-             screen_width, screen_height = 1920, 1080
-
-        if not screen_width or not screen_height:
-            import warnings
-            warnings.warn("no monitors detected")
-            return []
-
-        await self.update_targets()
-        distinct_windows = defaultdict(list)
-
-        tabs = windows if windows else self.tabs
-        for tab_ in tabs:
-            try:
-                window_id, bounds = await tab_.get_window()
-                distinct_windows[window_id].append(tab_)
-            except: continue
-
-        num_windows = len(distinct_windows)
-        if not num_windows:
-            logger.info("no windows to tile")
-            return []
-
-        # max(..., 1) - with a single window the old formula produced 0 columns
-        # and the next line divided by it.
-        req_cols = max(max_columns or int(num_windows * (19 / 6)), 1)
-        req_rows = max(int(num_windows / req_cols), 1)
-
-        while req_cols * req_rows < num_windows:
-            req_rows += 1
-
-        box_w = math.floor((screen_width / req_cols) - 1)
-        box_h = math.floor(screen_height / req_rows)
-
-        distinct_windows_iter = iter(distinct_windows.values())
-        grid = []
-        for x in range(req_cols):
-            for y in range(req_rows):
-                try:
-                    tabs_to_tile = next(distinct_windows_iter)
-                except StopIteration:
-                    continue
-                if not tabs_to_tile:
-                    continue
-                tab_to_tile = tabs_to_tile[0]
-
-                try:
-                    pos = [x * box_w, y * box_h, box_w, box_h]
-                    grid.append(pos)
-                    await tab_to_tile.set_window_size(*pos)
-                except Exception:
-                    logger.info("could not set window size.", exc_info=True)
-                    continue
-        return grid
