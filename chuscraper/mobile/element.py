@@ -1,4 +1,4 @@
-from bs4 import BeautifulSoup, Tag
+from bs4 import Tag
 from typing import TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
@@ -12,23 +12,31 @@ class MobileElement:
         self.tag = tag
 
     async def click(self):
-        """Clicks the center of this element."""
-        # Need to parse bounds carefully.
-        # Format: [x1,y1][x2,y2]
+        """
+        Clicks the center of this element.
+
+        Raises ValueError if the element has no usable ``bounds``. This used to
+        swallow every failure, so a click that silently did nothing looked
+        exactly like a click that worked.
+        """
         bounds_str = self.tag.get("bounds")
         if not bounds_str:
-            return
+            raise ValueError(
+                f"Element has no 'bounds' attribute, cannot click it: {self.tag.name}"
+            )
 
+        center_x, center_y = self._center(bounds_str)
+        await self.device.tap(center_x, center_y)
+
+    @staticmethod
+    def _center(bounds_str: str) -> Tuple[int, int]:
+        """Parse an android bounds string, e.g. '[144,2121][304,2206]'."""
         try:
-            # Example: [144,2121][304,2206]
             parts = bounds_str.replace("][", ",").replace("[", "").replace("]", "").split(",")
             x1, y1, x2, y2 = map(int, parts)
-
-            center_x = (x1 + x2) // 2
-            center_y = (y1 + y2) // 2
-            await self.device.tap(center_x, center_y)
-        except Exception:
-            pass # Fail silently if bounds are weird
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Could not parse element bounds {bounds_str!r}") from e
+        return (x1 + x2) // 2, (y1 + y2) // 2
 
     async def type(self, text: str):
         """Clicks then types text."""

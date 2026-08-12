@@ -14,6 +14,7 @@ import urllib.parse
 import warnings
 import webbrowser
 from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, Union, cast, Type, TypeVar, Iterable, Generator
+from deprecated import deprecated
 from chuscraper.engine.parser import Selector as ChuSelector, Selectors as ChuSelectors
 from chuscraper.engine.core.extract import Convertor
 
@@ -45,6 +46,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+#: used only when the real browser version cannot be read over CDP
+_VERSION_FALLBACK = "145.0.0.0"
 
 class Tab(
     Connection, 
@@ -706,36 +710,60 @@ class Tab(
         all_assets = await self.query_selector_all(selector="a,link,img,script,meta")
         return [element.create(asset.node, self) for asset in all_assets]
 
-    async def get_all_urls(self, absolute: bool = True) -> List[str]:
+    async def get_all_urls(self, absolute: bool = True, navigable: bool = False) -> List[str]:
         """
         convenience function, which returns all links (a,link,img,script,meta)
 
         :param absolute: try to build all the links in absolute form instead of "as is", often relative
-        :return: list of urls
+        :param navigable: only return links a crawler could actually visit, i.e.
+                          ``<a href>`` targets with an http(s) scheme. Assets
+                          (scripts, stylesheets, images) and non-navigational
+                          schemes (mailto:, javascript:, tel:, data:) are dropped.
+        :return: list of urls, de-duplicated, in document order
         """
 
         import urllib.parse
 
+        selector = "a" if navigable else "a,link,img,script,meta"
+        all_assets = await self.query_selector_all(selector=selector)
+
+        # Resolve against the document's own <base href> when present, else the
+        # page URL itself. Joining against the bare origin (the old behaviour)
+        # resolved "page2.html" on /docs/ to /page2.html, which is wrong.
+        base_url = self.url or ""
+        try:
+            declared_base = await self.evaluate(
+                "document.querySelector('base[href]') ? document.baseURI : ''"
+            )
+            if declared_base and isinstance(declared_base, str):
+                base_url = declared_base
+        except Exception:
+            pass
+
         res: list[str] = []
-        all_assets = await self.query_selector_all(selector="a,link,img,script,meta")
+        seen: set[str] = set()
         for asset in all_assets:
-            if not absolute:
-                res_to_add = asset.src or asset.href
-                if res_to_add:
-                    res.append(res_to_add)
-            else:
-                for k, v in asset.attrs.items():
-                    if k in ("src", "href"):
-                        if "#" in v:
-                            continue
-                        if not any([_ in v for _ in ("http", "//", "/")]):
-                            continue
-                        abs_url = urllib.parse.urljoin(
-                            "/".join(self.url.rsplit("/")[:3] if self.url else []), v
-                        )
-                        if not abs_url.startswith(("http", "//", "ws")):
-                            continue
-                        res.append(abs_url)
+            for k, v in asset.attrs.items():
+                if k not in ("src", "href") or not v:
+                    continue
+
+                candidate = v.strip()
+                if not candidate:
+                    continue
+
+                if absolute and base_url:
+                    candidate = urllib.parse.urljoin(base_url, candidate)
+
+                if navigable:
+                    # Drop fragments ("/docs#intro" and "/docs" are one page) and
+                    # anything that isn't a real http(s) document.
+                    candidate, _ = urllib.parse.urldefrag(candidate)
+                    if urllib.parse.urlparse(candidate).scheme not in ("http", "https"):
+                        continue
+
+                if candidate not in seen:
+                    seen.add(candidate)
+                    res.append(candidate)
         return res
 
 
@@ -750,35 +778,86 @@ class Tab(
         return html_to_markdown(content)
 
 
-    async def crawl(self, depth: int = 1, max_pages: int = 5) -> List[str]:
+    async def map_links(self, max_pages: int = 5) -> List[str]:
         """
-        Simple crawler that visits links on the current page.
+        Return same-host links found on the *current* page, without navigating.
+
+        This is a "map" helper, not a crawler - it does not follow links. For an
+        actual multi-page crawl use :py:class:`chuscraper.spider.Crawler`, which
+        handles the queue, depth, concurrency and extraction.
 
         Args:
-            depth: How deep to crawl (currently only supports 1 - shallow crawl of links on current page)
-            max_pages: Limit number of pages to visit
+            max_pages: Maximum number of links to return
 
         Returns:
-            List of visited URLs
+            List of same-host URLs discovered on this page
         """
-        # TODO: Implement full recursive crawler with queue
-        # For now, implemented a "map" feature essentially
-        links = await self.get_all_urls()
-
-        # Filter external links?
+        links = await self.get_all_urls(absolute=True, navigable=True)
         current_host = urllib.parse.urlparse(self.url).hostname
 
-        visited = []
-        count = 0
+        found = []
         for link in links:
-            if count >= max_pages:
+            if len(found) >= max_pages:
                 break
             if urllib.parse.urlparse(link).hostname == current_host:
-                visited.append(link)
-                # In a real crawler, we would navigate here and extract
-                count += 1
+                found.append(link)
 
-        return visited
+        return found
+
+    @deprecated(
+        reason="crawl() never actually crawled - it only listed links on the "
+               "current page and ignored `depth`. Use map_links() for that, or "
+               "chuscraper.spider.Crawler for a real crawl."
+    )
+    async def crawl(self, depth: int = 1, max_pages: int = 5) -> List[str]:
+        """Deprecated alias for :py:meth:`map_links`. `depth` is ignored."""
+        return await self.map_links(max_pages=max_pages)
+
+    async def mouse_drag(
+        self,
+        source: Tuple[float, float],
+        destination: Tuple[float, float],
+        steps: int = 20,
+    ) -> None:
+        """
+        Perform a native drag-and-drop from `source` to `destination`.
+
+        Moves along a stepped path with the button held down, so the page sees a
+        realistic mousedown -> mousemove* -> mouseup sequence rather than a
+        teleporting cursor.
+
+        :param source: (x, y) to start the drag from
+        :param destination: (x, y) to drop at
+        :param steps: number of intermediate move events
+        """
+        sx, sy = source
+        dx, dy = destination
+        steps = max(int(steps), 1)
+
+        await self.send(
+            cdp.input_.dispatch_mouse_event(
+                "mousePressed", x=sx, y=sy,
+                button=cdp.input_.MouseButton("left"), click_count=1, buttons=1,
+            )
+        )
+        for i in range(1, steps + 1):
+            ratio = i / steps
+            await self.send(
+                cdp.input_.dispatch_mouse_event(
+                    "mouseMoved",
+                    x=sx + (dx - sx) * ratio,
+                    y=sy + (dy - sy) * ratio,
+                    button=cdp.input_.MouseButton("left"),
+                    buttons=1,
+                )
+            )
+            await asyncio.sleep(random.uniform(0.01, 0.03))
+        await self.send(
+            cdp.input_.dispatch_mouse_event(
+                "mouseReleased", x=dx, y=dy,
+                button=cdp.input_.MouseButton("left"), click_count=1, buttons=1,
+            )
+        )
 
     async def __call__(
         self,
@@ -851,11 +930,30 @@ class Tab(
     async def get_browser_version(self, full: bool = False) -> int | str:
         """Fetches the version of the browser kernel via CDP."""
         try:
+            # Browser.getVersion returns a 5-tuple
+            # (protocolVersion, product, revision, userAgent, jsVersion).
+            # Reading `.product` off it raised AttributeError every single time,
+            # so this method ALWAYS fell through to the hardcoded fallback and
+            # the "auto-detect Chrome version" feature never actually worked -
+            # meaning the spoofed UA never matched the real browser build.
             ver_info = await self.send(cdp.browser.get_version())
-            match = re.search(r'Chrome/([\d.]+)', ver_info.product)
+            if isinstance(ver_info, (tuple, list)):
+                product = str(ver_info[1]) if len(ver_info) > 1 else ""
+            else:
+                product = str(getattr(ver_info, "product", "") or "")
+
+            match = re.search(r'Chrome/([\d.]+)', product)
             if match:
                 full_v = match.group(1)
                 return full_v if full else int(full_v.split('.')[0])
         except Exception as e:
             logger.debug(f"Failed to fetch browser version: {e}")
-        return "145.0.0.0" if full else 145  # Safe fallback for current builds
+        # Falling back means the spoofed UA may not match the real kernel, which
+        # is exactly the mismatch stealth is trying to avoid - so say so loudly
+        # instead of silently pretending we detected a version.
+        logger.warning(
+            "Could not detect the real Chrome version via CDP; falling back to "
+            "%s. Stealth fingerprints may not match the actual browser build.",
+            _VERSION_FALLBACK,
+        )
+        return _VERSION_FALLBACK if full else int(_VERSION_FALLBACK.split(".")[0])

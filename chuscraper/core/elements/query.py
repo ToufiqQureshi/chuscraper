@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .base import ElementMixin
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 from ... import cdp
 from .. import util
 import typing

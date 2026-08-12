@@ -40,7 +40,6 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
     _process_pid: int | None
     _http: HTTPApi | None = None
     _cookies: CookieJar | None = None
-    _update_target_info_mutex: asyncio.Lock = asyncio.Lock()
     _local_proxy: Any | None = None
 
     _config: Config
@@ -107,6 +106,11 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
             )
 
         self._config = copy.deepcopy(config)
+        # Per-instance, created inside the running loop. This used to be a
+        # class attribute built at import time, so every Browser in the process
+        # shared one lock (serialising unrelated browsers, and breaking outright
+        # if two of them ran on different event loops).
+        self._update_target_info_mutex: asyncio.Lock = asyncio.Lock()
         self._targets: List[Connection] = []
         self.info: ContraDict | None = None
         self._target = None
@@ -149,7 +153,10 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
     async def start(self) -> Browser:
         """launches the actual browser"""
         if self._process or self._process_pid:
-            if self._process and self._process.returncode is not None:
+            # poll() actually refreshes returncode; reading returncode alone
+            # stays None until something else polls, so a dead browser looked
+            # alive here and we'd warn "already running" instead of restarting.
+            if self._process and self._process.poll() is not None:
                 return await self.create(config=self._config)
             warnings.warn("ignored! this call has no effect when already running.")
             return self
@@ -179,9 +186,15 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
         resolved_proxy = None
         if self._config.proxy:
             from . import local_proxy
-            self._local_proxy = local_proxy.LocalAuthProxy(self._config.proxy)
-            local_port = await self._local_proxy.start()
-            resolved_proxy = f"127.0.0.1:{local_port}"
+            try:
+                self._local_proxy = local_proxy.LocalAuthProxy(self._config.proxy)
+                local_port = await self._local_proxy.start()
+                resolved_proxy = f"127.0.0.1:{local_port}"
+            except ValueError as e:
+                # SOCKS upstreams can't go through the HTTP forwarder; Config
+                # already emits a scheme-preserving --proxy-server for them.
+                logger.info("Using proxy directly without local forwarder: %s", e)
+                self._local_proxy = None
 
         exe = self._config.browser_executable_path
         params = self._config()
@@ -199,6 +212,11 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
         if not connect_existing:
             self._process = util._start_process(exe, params, is_posix)
             self._process_pid = self._process.pid
+            # Nobody reads Chrome's stdout; drain it so a full pipe buffer can
+            # never block the browser mid-session. (stderr is drained below,
+            # once port discovery is done with it.)
+            from .process import drain_pipe
+            drain_pipe(self._process.stdout)
             # Register immediately to ensure cleanup if crash happens during startup
             util.get_registered_instances().add(self)
 
@@ -245,6 +263,10 @@ class Browser(TargetManagerMixin, BrowserContextMixin):
 
                 if found_port:
                     self._config.port = found_port
+                    # Keep draining stderr. We stopped reading it the moment we
+                    # found the port, so a chatty Chrome would fill the pipe and
+                    # block mid-session.
+                    drain_pipe(self._process.stderr)
                 else:
                     # Fallback or error? If we can't find the port, connection will likely fail.
                     # But maybe Chrome started silently? We'll try a fallback check or let test_connection fail.

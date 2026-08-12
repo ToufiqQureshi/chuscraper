@@ -1,6 +1,6 @@
 import asyncio
 import subprocess
-from typing import List, Optional
+from typing import List
 
 async def run_adb(args: List[str], timeout: float = 10.0) -> str:
     """Executes an ADB command and returns the output."""

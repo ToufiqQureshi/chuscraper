@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 from .base import TabMixin
-from typing import TYPE_CHECKING, Literal, Optional, Union
+from typing import TYPE_CHECKING, Literal, Optional
 import typing
 import secrets
 import logging
@@ -9,9 +9,6 @@ from ... import cdp
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from ..tab import Tab
-    from ..element import Element
 
 class ActionsMixin(TabMixin):
     async def _retry_action(self, func, selector, *args, timeout=None, **kwargs):
@@ -22,6 +19,8 @@ class ActionsMixin(TabMixin):
         retry_timeout = getattr(config, "retry_timeout", 10.0)
 
         last_exc = None
+        # retry_count=0 would otherwise skip the loop entirely and `raise None`
+        retry_count = max(int(retry_count or 1), 1)
         for i in range(retry_count):
             try:
                 el = await self.tab.select(selector, timeout=timeout)
@@ -41,8 +40,15 @@ class ActionsMixin(TabMixin):
         return self.tab
 
     async def type(self, selector: str, text: str, delay: float = 0.05, timeout: Optional[float] = None):
-        """Finds and types into an element with optional human-like delay."""
-        await self._retry_action(lambda el: el.send_keys(text), selector, timeout=timeout)
+        """
+        Finds and types into an element with a human-like per-character delay.
+
+        `delay` used to be accepted and then thrown away - the whole string was
+        dispatched in one burst, so "human typing" typed at machine speed.
+        """
+        await self._retry_action(
+            lambda el: el.type(text, delay=delay), selector, timeout=timeout
+        )
         return self.tab
 
     async def fill(self, selector: str, text: str, timeout: Optional[float] = None):
@@ -92,29 +98,34 @@ class ActionsMixin(TabMixin):
     async def mouse_move(
         self, x: float, y: float, steps: int = 10, flash: bool = False
     ) -> None:
-        steps = 1 if (not steps or steps < 1) else steps
-        # probably the worst waay of calculating this. but couldn't think of a better solution today.
-        if steps > 1:
-            step_size_x = x // steps
-            step_size_y = y // steps
-            pathway = [(step_size_x * i, step_size_y * i) for i in range(steps + 1)]
-            for point in pathway:
-                if flash:
-                    await self.flash_point(point[0], point[1])
-                await self.send(
-                    cdp.input_.dispatch_mouse_event(
-                        "mouseMoved", x=point[0], y=point[1]
-                    )
-                )
-        else:
-            await self.send(cdp.input_.dispatch_mouse_event("mouseMoved", x=x, y=y))
+        """
+        Move the mouse to (x, y) along a stepped path.
+
+        Interpolates from the cursor's *current* position (tracked on the tab)
+        rather than always starting at (0, 0), lands exactly on the target
+        instead of floor-dividing its way to somewhere nearby, and does not
+        dispatch a stray mouseReleased - a move is not a click, and that extra
+        event fired phantom mouseup handlers on the page.
+        """
+        steps = 1 if (not steps or steps < 1) else int(steps)
+        start_x, start_y = getattr(self.tab, "_mouse_position", (0.0, 0.0))
+
+        for i in range(1, steps + 1):
+            ratio = i / steps
+            px = start_x + (x - start_x) * ratio
+            py = start_y + (y - start_y) * ratio
+            if flash:
+                await self.flash_point(px, py)
+            await self.send(
+                cdp.input_.dispatch_mouse_event("mouseMoved", x=px, y=py)
+            )
+
+        setattr(self.tab, "_mouse_position", (x, y))
+
         if flash:
             await self.flash_point(x, y)
         else:
             await self.tab.sleep(0.05)
-        await self.send(cdp.input_.dispatch_mouse_event("mouseReleased", x=x, y=y))
-        if flash:
-            await self.flash_point(x, y)
 
     async def mouse_click(
         self,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .base import TabMixin
-from typing import TYPE_CHECKING, List, Optional, Union, Any, cast
+from typing import TYPE_CHECKING, List, Optional, Union, Any
 import asyncio
 import logging
 import json
@@ -12,14 +12,17 @@ from ..connection import ProtocolException
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from ..tab import Tab
     from ..element import Element
 
 class DomMixin(TabMixin):
-    async def xpath(self, xpath: str) -> List[Element]:
+    async def xpath(self, xpath: str, limit: int = 1000) -> List[Element]:
         """
         Evaluate an XPath expression and return matching elements.
         Supports JS fallback for broken DOM agents.
+
+        :param limit: maximum number of nodes to return. Previously hard-capped
+                      at 100 with no way to raise it and no warning when results
+                      were silently dropped.
         """
         # Ensure DOM agent enabled
         try: await self.send(cdp.dom.enable())
@@ -41,16 +44,24 @@ class DomMixin(TabMixin):
                         attributes: attrs,
                         textContent: el.textContent
                     }});
-                    if (nodes.length >= 100) break;
+                    if (nodes.length >= {limit}) break;
                 }}
-                return nodes;
+                return {{ nodes: nodes, total: results.snapshotLength }};
             }})()
             """
             res, _ = await self.send(cdp.runtime.evaluate(js_meta_code, return_by_value=True))
-            if res and res.value:
+            payload = res.value if res else None
+            node_vals = (payload or {}).get("nodes") or []
+            total = (payload or {}).get("total", len(node_vals))
+            if total > len(node_vals):
+                logger.warning(
+                    "XPath %r matched %d nodes but only %d were returned; "
+                    "pass a larger limit= to get the rest.", xpath, total, len(node_vals)
+                )
+            if node_vals:
                 doc = await self.send(cdp.dom.get_document(-1, True))
                 items = []
-                for idx, val in enumerate(res.value):
+                for idx, val in enumerate(node_vals):
                     synthetic_node = cdp.dom.Node(
                         node_id=cdp.dom.NodeId(-1),
                         backend_node_id=cdp.dom.BackendNodeId(-1),

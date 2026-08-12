@@ -35,6 +35,12 @@ class BaseRequestExpectation:
         Internal handler for request events.
         :param event: The request event.
         """
+        # Handlers are dispatched as concurrent tasks, so two matching requests
+        # could both get past the match check before either removed the handler
+        # and the second set_result() raised InvalidStateError. Checking
+        # done() makes the first match win cleanly.
+        if self.request_future.done():
+            return
         if re.fullmatch(self.url_pattern, event.request.url):
             self._remove_request_handler()
             self.request_id = event.request_id
@@ -45,6 +51,8 @@ class BaseRequestExpectation:
         Internal handler for response events.
         :param event: The response event.
         """
+        if self.response_future.done():
+            return
         if event.request_id == self.request_id:
             self._remove_response_handler()
             self.response_future.set_result(event)
@@ -56,6 +64,8 @@ class BaseRequestExpectation:
         Internal handler for loading finished events.
         :param event: The loading finished event.
         """
+        if self.loading_finished_future.done():
+            return
         if event.request_id == self.request_id:
             self._remove_loading_finished_handler()
             self.loading_finished_future.set_result(event)

@@ -1,9 +1,7 @@
 from __future__ import annotations
 from .base import TabMixin
-from typing import TYPE_CHECKING, Dict, Optional, List
+from typing import TYPE_CHECKING, Dict, List
 
-if TYPE_CHECKING:
-    from ..tab import Tab
 
 class NetworkMixin(TabMixin):
     async def set_extra_headers(self, headers: Dict[str, str]):

@@ -30,6 +30,13 @@ class Config:
     Config object
     """
 
+    #: extra kwargs that other parts of chuscraper legitimately set on Config
+    _KNOWN_EXTRA_KWARGS = frozenset({
+        "autodiscover_targets",
+        "expert",
+        "stealth_domain",
+    })
+
     def __init__(
         self,
         user_data_dir: Optional[PathLike] = AUTO,
@@ -52,6 +59,10 @@ class Config:
         retry_enabled: Optional[bool] = False,
         retry_timeout: float = 10.0,
         retry_count: int = 3,
+        stealth: bool = False,
+        stealth_options: Optional[Dict[str, Any]] = None,
+        humanize: bool = False,
+        production_ready: bool = False,
         **kwargs: Any,
     ):
         if not browser_args:
@@ -83,6 +94,19 @@ class Config:
         self.retry_enabled = retry_enabled
         self.retry_timeout = retry_timeout
         self.retry_count = retry_count
+        self.stealth = stealth
+        self.stealth_options = stealth_options or {}
+        self.humanize = humanize
+        self.production_ready = production_ready
+
+        if production_ready:
+            # Preset for long-running unattended scrapes: retry hard and give a
+            # loaded machine plenty of time to bring the browser up.
+            self.retry_enabled = True
+            self.retry_count = max(self.retry_count, 5)
+            self.retry_timeout = max(self.retry_timeout, 20.0)
+            browser_connection_timeout = max(browser_connection_timeout, 0.5)
+            browser_connection_max_tries = max(browser_connection_max_tries, 20)
 
         if is_posix and is_root() and sandbox:
             logger.info("detected root usage, auto disabling sandbox mode")
@@ -94,6 +118,16 @@ class Config:
         self.browser_connection_timeout = browser_connection_timeout
         self.browser_connection_max_tries = browser_connection_max_tries
 
+        # Warn on unknown keyword arguments. `__dict__.update(kwargs)` silently
+        # swallowed typos, so `start(headles=True)` looked like it worked while
+        # doing nothing at all.
+        unknown = set(kwargs) - self._KNOWN_EXTRA_KWARGS
+        if unknown:
+            logger.warning(
+                "Unknown Config option(s): %s. These are stored but have no "
+                "effect - check for a typo.",
+                ", ".join(sorted(unknown)),
+            )
         self.__dict__.update(kwargs)
         super().__init__()
 
@@ -167,6 +201,12 @@ class Config:
                 if arg not in args:
                     args.append(arg)
 
+        if self.humanize and not self.headless:
+            # A real person's browser is a maximized window that can open popups.
+            for arg in ("--start-maximized", "--disable-popup-blocking"):
+                if arg not in args:
+                    args.append(arg)
+
         if self.headless:
             args.append("--headless=new")
         if self.lang:
@@ -196,10 +236,15 @@ class Config:
                  temp_proxy = "http://" + temp_proxy
              p = urllib.parse.urlparse(temp_proxy)
              if p.hostname:
-                 if p.port:
-                    args.append(f"--proxy-server={p.hostname}:{p.port}")
+                 host = f"{p.hostname}:{p.port}" if p.port else p.hostname
+                 # Keep the scheme for SOCKS. Stripping it made Chrome treat
+                 # socks5://host:1080 as an HTTP proxy, so every SOCKS proxy
+                 # silently failed to carry traffic.
+                 scheme = (p.scheme or "").lower()
+                 if scheme in ("socks4", "socks5"):
+                     args.append(f"--proxy-server={scheme}://{host}")
                  else:
-                    args.append(f"--proxy-server={p.hostname}")
+                     args.append(f"--proxy-server={host}")
         return args
 
     def add_argument(self, arg: str) -> None:

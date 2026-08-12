@@ -61,13 +61,18 @@ class Transaction:
 
 
 class Connection:
+    #: seconds to wait for a CDP reply before giving up on a command
+    DEFAULT_COMMAND_TIMEOUT = 30.0
+
     def __init__(
         self,
         websocket_url: str,
         target: Optional[Any] = None,
         _owner: Optional[Any] = None,
+        command_timeout: float = DEFAULT_COMMAND_TIMEOUT,
         **kwargs: Any,
     ):
+        self.command_timeout = command_timeout
         self.websocket_url = websocket_url
         self.target = target
         self._owner = _owner
@@ -98,12 +103,26 @@ class Connection:
     @property
     def closed(self) -> bool:
         """Robust check for connection state."""
-        if not self.websocket:
+        ws = self.websocket
+        if not ws:
             return True
-        try:
-            return self.websocket.closed
-        except AttributeError:
-            return not getattr(self.websocket, "open", False)
+
+        # websockets >= 14 (websockets.asyncio.client.ClientConnection) exposes
+        # neither `.closed` nor `.open` - only `.state`. The old code fell
+        # through both lookups to `getattr(ws, "open", False)` and therefore
+        # reported "closed" for every healthy connection, forcing a reconnect
+        # before every single command.
+        state = getattr(ws, "state", None)
+        if state is not None:
+            name = getattr(state, "name", str(state))
+            return name not in ("OPEN", "CONNECTING")
+
+        closed = getattr(ws, "closed", None)
+        if closed is not None:
+            # legacy protocol: `closed` is an asyncio.Event on some versions
+            return bool(closed.is_set()) if hasattr(closed, "is_set") else bool(closed)
+
+        return not getattr(ws, "open", False)
 
     async def connect(self):
         if self._connecting:
@@ -159,6 +178,18 @@ class Connection:
             if self.websocket == ws:
                 self.websocket = None
                 self._connected.clear()
+            # Nothing will ever answer the in-flight commands now. Without this
+            # every pending `await tx.future` hangs for the life of the process.
+            self._fail_pending(
+                ConnectionError(f"CDP connection closed for target {self.target_id}")
+            )
+
+    def _fail_pending(self, exc: BaseException) -> None:
+        """Reject every in-flight transaction and clear the mapper."""
+        pending, self.mapper = self.mapper, {}
+        for tx in pending.values():
+            if not tx.future.done():
+                tx.future.set_exception(exc)
 
     async def _handle_message(self, message: str):
         try:
@@ -296,6 +327,12 @@ class Connection:
             }
             final_method = "Target.sendMessageToTarget"
 
+        ws = self.websocket
+        if ws is None:
+            # The recv loop may have cleared it between the `closed` check and
+            # here; treat it like any other dropped connection so send() retries.
+            raise ConnectionError("CDP websocket is not connected")
+
         tx_id = next(self._count)
         tx = Transaction(tx_id, final_method, final_params)
         self.mapper[tx_id] = tx
@@ -303,14 +340,16 @@ class Connection:
         payload = {"id": tx_id, "method": final_method, "params": final_params}
 
         try:
-            await self.websocket.send(json.dumps(payload))
-        except Exception:
-            raise
-
-        try:
-            return await tx.future
-        except Exception:
-            raise
+            await ws.send(json.dumps(payload))
+            # Always bound the wait. A command Chrome never answers used to hang
+            # forever *and* leak its Transaction in self.mapper.
+            return await asyncio.wait_for(tx.future, timeout=self.command_timeout)
+        except asyncio.TimeoutError as e:
+            raise asyncio.TimeoutError(
+                f"CDP command {final_method!r} timed out after {self.command_timeout}s"
+            ) from e
+        finally:
+            self.mapper.pop(tx_id, None)
 
     async def stop(self):
         if self.recv_task:
@@ -319,6 +358,10 @@ class Connection:
             try: await self.websocket.close()
             except: pass
             self.websocket = None
+        self._connected.clear()
+        # Cancelling recv_task means its finally-block may not run, so release
+        # any waiters here too rather than leaving them hanging.
+        self._fail_pending(ConnectionError("CDP connection stopped"))
 
     close = stop
     aclose = stop
@@ -335,7 +378,10 @@ class Connection:
                 if handler in self.handlers[event_type]:
                     self.handlers[event_type].remove(handler)
             else:
-                del self.handlers[event_type]
+                # `del` on a defaultdict still raises KeyError for a key that was
+                # never registered, so removing handlers for an unused event
+                # type used to blow up instead of being a no-op.
+                self.handlers.pop(event_type, None)
         elif handler:
             for et in list(self.handlers.keys()):
                 if handler in self.handlers[et]:

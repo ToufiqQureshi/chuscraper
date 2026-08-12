@@ -2,11 +2,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import functools
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, Optional
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
-if TYPE_CHECKING:
-    from ..tab import Tab
-    from ..connection import Connection
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")

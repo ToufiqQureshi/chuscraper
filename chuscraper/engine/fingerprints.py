@@ -3,7 +3,7 @@ from platform import system as platform_system
 from tld import get_tld, Result
 from browserforge.headers import Browser, HeaderGenerator
 from browserforge.headers.generator import SUPPORTED_OPERATING_SYSTEMS
-from chuscraper.engine.core._types import Dict, Literal, Tuple, cast
+from typing import Dict, Literal, Tuple, cast
 
 __OS_NAME__ = platform_system()
 OSName = Literal["linux", "macos", "windows"]

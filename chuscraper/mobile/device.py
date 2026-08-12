@@ -1,7 +1,6 @@
-import asyncio
 import os
-import time
-from typing import List, Optional, Tuple, Dict
+import tempfile
+from typing import List, Optional
 from chuscraper.mobile.core import run_adb
 from chuscraper.mobile.element import MobileElement
 from bs4 import BeautifulSoup
@@ -48,22 +47,20 @@ class MobileDevice:
         remote_path = "/sdcard/window_dump.xml"
         await self._adb_cmd("shell", "uiautomator", "dump", remote_path)
 
-        # Pull to host temp file
-        temp_local = f"dump_{int(time.time())}.xml"
-        await self._adb_cmd("pull", remote_path, temp_local)
+        # Pull into a private temp dir. The old `dump_{int(time.time())}.xml`
+        # landed in the process CWD and collided whenever two dumps happened in
+        # the same second - one call would delete the other's file mid-read.
+        with tempfile.TemporaryDirectory(prefix="chuscraper_adb_") as tmpdir:
+            temp_local = os.path.join(tmpdir, "window_dump.xml")
+            await self._adb_cmd("pull", remote_path, temp_local)
 
-        try:
             if not os.path.exists(temp_local):
                 # Fallback: sometimes dump fails silently or to a different path
                 return BeautifulSoup("<hierarchy></hierarchy>", "xml")
 
             with open(temp_local, "r", encoding="utf-8", errors="ignore") as f:
                 xml_content = f.read()
-            soup = BeautifulSoup(xml_content, "xml")
-            return soup
-        finally:
-            if os.path.exists(temp_local):
-                os.remove(temp_local)
+            return BeautifulSoup(xml_content, "xml")
 
     async def find_element(self, **kwargs) -> Optional[MobileElement]:
         """Finds a single element matching criteria."""
@@ -102,9 +99,23 @@ class MobileDevice:
         await self._adb_cmd("shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration))
 
     async def input_text(self, text: str):
-        """Types text (must be focused first). Replaces spaces with %s."""
-        escaped_text = text.replace(" ", "%s")
-        await self._adb_cmd("shell", "input", "text", escaped_text)
+        """
+        Types text into the focused field.
+
+        `adb shell` concatenates its arguments and hands the result to the
+        device's shell, so text is a shell-injection boundary: `;`, `&`, `|`,
+        backticks, `$(...)` and quotes would otherwise execute on the device.
+        We single-quote the whole argument and escape any embedded quote, then
+        encode the space as `%s` the way `input text` expects.
+        """
+        if not isinstance(text, str):
+            raise TypeError(f"input_text expects str, got {type(text).__name__}")
+
+        # %s is how `input text` encodes a space, so a literal % must be escaped
+        # first or it would be misread.
+        encoded = text.replace("%", "%%").replace(" ", "%s")
+        quoted = "'" + encoded.replace("'", "'\\''") + "'"
+        await self._adb_cmd("shell", "input", "text", quoted)
 
     async def press_keycode(self, code: int):
         """Presses a hardware key (e.g., 3 for HOME, 4 for BACK)."""

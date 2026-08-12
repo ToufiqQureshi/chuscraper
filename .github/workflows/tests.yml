@@ -1,0 +1,47 @@
+name: Tests
+
+# The repo only had a publish workflow, so nothing ever ran the test suite -
+# which is how a JS syntax error in the main stealth bypass, a crashing rate
+# limiter and silent crawler data loss all shipped to PyPI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest and newest supported. The versions in between share the same
+        # code paths, so four jobs bought nothing over testing the boundaries.
+        python-version: ['3.10', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          pip install -e .
+          pip install pytest pytest-asyncio pytest-mock pytest-timeout ruff psutil
+
+      # node is preinstalled on ubuntu-latest, so no setup-node step needed.
+      # This catches a parse error in an injected bypass, which is otherwise
+      # completely silent at runtime.
+      - name: Check JS bypasses parse
+        run: for f in chuscraper/engine/bypasses/*.js; do node --check "$f"; done
+
+      - name: Lint for real errors
+        run: ruff check chuscraper/ --select F821,F841,E9
+
+      - name: Test
+        # Browser tests are opt-in (CHUSCRAPER_BROWSER_TESTS=1) - they launch
+        # real Chrome and hit the network. --timeout turns a hang into a
+        # failure instead of burning the runner budget.
+        run: pytest tests/core -q --timeout=120

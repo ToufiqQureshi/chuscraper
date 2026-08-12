@@ -1,13 +1,11 @@
 from __future__ import annotations
 from .base import TabMixin
-from typing import TYPE_CHECKING, Any, Tuple, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 import typing
 from ... import cdp
 from ..connection import ProtocolException
 from ...cdp.runtime import DeepSerializedValue
 
-if TYPE_CHECKING:
-    from ..tab import Tab
 
 class EvaluationMixin(TabMixin):
     async def evaluate(

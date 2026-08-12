@@ -113,6 +113,11 @@ async def start(
             disable_webgl=disable_webgl,
             browser_connection_timeout=browser_connection_timeout,
             browser_connection_max_tries=browser_connection_max_tries,
+            # These were previously accepted by start() but never reached
+            # Config, so config.stealth / config.humanize / config.production_ready
+            # were missing and the presets did nothing.
+            stealth=stealth,
+            stealth_domain=stealth_domain,
             **kwargs,
         )
     from .browser import Browser
@@ -122,14 +127,18 @@ async def start(
     # ── Stealth mode: auto-apply system fingerprint to the main tab ──────────
     if stealth:
         from .stealth import SystemProfile
-        # Use stealth_options if provided in kwargs
-        s_opts = kwargs.get("stealth_options", {})
+        s_opts = kwargs.get("stealth_options", getattr(config, "stealth_options", {})) or {}
         profile = SystemProfile.from_system(cookie_domain=stealth_domain, stealth_options=s_opts)
-        tab = browser.main_tab
+        # getattr: Browser.create may be stubbed out in tests, and a browser with
+        # no page target yet has no main_tab.
+        tab = getattr(browser, "main_tab", None)
         if tab:
             await profile.apply(tab, load_cookies=bool(stealth_domain))
         # Attach profile to browser for later use (e.g., save_cookies)
-        browser._stealth_profile = profile
+        try:
+            browser._stealth_profile = profile
+        except AttributeError:
+            pass
 
     # ── Auto-apply Timezone if set ──────────────────────────────────────────
     if timezone or (stealth and not timezone):
@@ -209,8 +218,10 @@ def filter_recurse_all(
             if predicate(child):
                 # if predicate is True
                 out.append(child)
-            if child.shadow_roots is not None:
-                out.extend(filter_recurse_all(child.shadow_roots[0], predicate))
+            # chrome sends [] (not None) when a node has no shadow roots, so
+            # test truthiness. also walk *every* shadow root, not just the first.
+            for shadow_root in child.shadow_roots or ():
+                out.extend(filter_recurse_all(shadow_root, predicate))
             out.extend(filter_recurse_all(child, predicate))
 
     return out
@@ -234,8 +245,8 @@ def filter_recurse(
             if predicate(child):
                 # if predicate is True
                 return child
-            if child.shadow_roots:
-                shadow_root_result = filter_recurse(child.shadow_roots[0], predicate)
+            for shadow_root in child.shadow_roots or ():
+                shadow_root_result = filter_recurse(shadow_root, predicate)
                 if shadow_root_result:
                     return shadow_root_result
             result = filter_recurse(child, predicate)

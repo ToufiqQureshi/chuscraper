@@ -7,6 +7,15 @@ Implements:
 - Session duration manager
 """
 
+import warnings as _warnings
+
+_DEPRECATION = """chuscraper.core.limiter is deprecated and will be removed in chuscraper 0.22.
+
+Use asyncio.Semaphore for concurrency limits, or a dedicated library such as
+aiolimiter for token-bucket rate limiting."""
+
+_warnings.warn(_DEPRECATION, DeprecationWarning, stacklevel=2)
+
 import asyncio
 import time
 from collections import deque
@@ -38,27 +47,25 @@ class RateLimiter:
     
     async def acquire(self) -> None:
         """Wait until a request slot is available."""
-        async with self._lock:
-            now = time.time()
-            
-            # Remove requests outside the time window
-            while self.requests and self.requests[0] < now - self.time_window:
-                self.requests.popleft()
-            
-            if len(self.requests) >= self.max_requests:
-                # Calculate wait time
-                oldest = self.requests[0]
-                wait_time = self.time_window - (now - oldest) + 0.1
-                
-                # Release lock while waiting
-                self._lock.release()
-                await asyncio.sleep(wait_time)
-                self._lock.acquire()
-                
-                return await self.acquire()
-            
-            # Record this request
-            self.requests.append(now)
+        while True:
+            async with self._lock:
+                now = time.time()
+
+                # Remove requests outside the time window
+                while self.requests and self.requests[0] < now - self.time_window:
+                    self.requests.popleft()
+
+                if len(self.requests) < self.max_requests:
+                    # Record this request and we're done
+                    self.requests.append(now)
+                    return
+
+                # Slot is full: figure out how long until the oldest one expires.
+                wait_time = self.time_window - (now - self.requests[0]) + 0.1
+
+            # Sleep *outside* the lock so other waiters can make progress, then
+            # re-check. Looping (instead of recursing) keeps this O(1) in stack.
+            await asyncio.sleep(max(wait_time, 0.0))
     
     def reset(self) -> None:
         """Clear all request history."""
